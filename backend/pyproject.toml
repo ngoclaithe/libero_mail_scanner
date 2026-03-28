@@ -1,0 +1,22 @@
+[project]
+name = "libero-mail-backend"
+version = "2.0.0"
+description = "Libero Mail Scanner - FastAPI Backend"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "python-dotenv>=1.2.2",
+    "python-multipart>=0.0.20",
+    "python-jose[cryptography]>=3.4.0",
+    "pysocks>=1.7.1",
+    "easyocr>=1.7.2",
+    "numpy>=2.4.3",
+    "opencv-python>=4.13.0.92",
+    "pdfplumber>=0.11.9",
+    "pillow>=12.1.1",
+    "tqdm>=4.67.3",
+]
+
+[dependency-groups]
+dev = []
