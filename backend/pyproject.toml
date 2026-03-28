@@ -2,7 +2,7 @@
 name = "libero-mail-backend"
 version = "2.0.0"
 description = "Libero Mail Scanner - FastAPI Backend"
-requires-python = ">=3.12"
+requires-python = ">=3.12, <3.13"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
