@@ -1,4 +1,5 @@
 import os
+import time as _time
 import shutil
 import queue
 import threading
@@ -41,8 +42,13 @@ class ClassifierEngine:
         self._stop.clear()
         
         # Initialize EasyOCR Reader once (loading models takes time)
-        print("Initializing EasyOCR Models (Italian)...")
+        print("[OCR-DEBUG] ═══════════════════════════════════════════")
+        print("[OCR-DEBUG] Khởi tạo EasyOCR Models (Italian + English)...")
+        t0 = _time.time()
         self.reader = easyocr.Reader(['it', 'en'], gpu=False)
+        elapsed = _time.time() - t0
+        print(f"[OCR-DEBUG] ✓ EasyOCR đã sẵn sàng — tải model mất {elapsed:.1f}s")
+        print("[OCR-DEBUG] ═══════════════════════════════════════════")
         
         self._thread = threading.Thread(target=self._run, daemon=True, name="AI_Classifier")
         self._thread.start()
@@ -62,7 +68,17 @@ class ClassifierEngine:
                     continue
                 
                 email_addr, file_path, mime = job
+                print(f"[OCR-DEBUG] ───────────────────────────────────────")
+                print(f"[OCR-DEBUG] 📥 Nhận job mới từ queue:")
+                print(f"[OCR-DEBUG]   Email : {email_addr}")
+                print(f"[OCR-DEBUG]   File  : {file_path}")
+                print(f"[OCR-DEBUG]   MIME  : {mime}")
+                print(f"[OCR-DEBUG]   Queue còn lại: ~{ai_queue.qsize()} jobs")
+                t_start = _time.time()
                 self.process_file(email_addr, Path(file_path), mime)
+                t_total = _time.time() - t_start
+                print(f"[OCR-DEBUG] ⏱ Tổng thời gian xử lý: {t_total:.2f}s")
+                print(f"[OCR-DEBUG] ───────────────────────────────────────")
                 ai_queue.task_done()
             except queue.Empty:
                 continue
@@ -87,27 +103,37 @@ class ClassifierEngine:
         review_dir = OUTPUT_DIR / slug / "review"
         
         # Layer 1: File Heuristics
+        size_kb = path.stat().st_size / 1024
+        print(f"[OCR-DEBUG] Layer 1 — File size: {size_kb:.1f} KB (cho phép: 30KB ~ 10MB)")
         if not self._layer1_file_check(path):
-            msg = f" ↳ [Bỏ qua] Kích thước file rác: {path.name}"
+            msg = f" ↳ [Bỏ qua] Kích thước file rác: {path.name} ({size_kb:.1f} KB)"
             print(msg)
             state.add_ai_log(msg)
             self._move(path, review_dir)
             return
+        print(f"[OCR-DEBUG] Layer 1 — ✓ PASS")
 
         # Layer 2: Image Heuristics
         if "image" in mime:
+            print(f"[OCR-DEBUG] Layer 2 — Kiểm tra image heuristics...")
             if not self._layer2_image_check(path):
                 msg = f" ↳ [Bỏ qua] Ảnh không đúng tỷ lệ ID: {path.name}"
                 print(msg)
                 state.add_ai_log(msg)
                 self._move(path, review_dir)
                 return
+            print(f"[OCR-DEBUG] Layer 2 — ✓ PASS")
+        else:
+            print(f"[OCR-DEBUG] Layer 2 — Bỏ qua (không phải image)")
 
         # Layer 3: OCR / PDF Text Scanning
         msg = f" ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text..."
         print(msg)
         state.add_ai_log(msg)
+        t_ocr = _time.time()
         text = self._layer3_extract_text(path, mime)
+        ocr_elapsed = _time.time() - t_ocr
+        print(f"[OCR-DEBUG] Layer 3 — OCR xong trong {ocr_elapsed:.2f}s, trích được {len(text)} ký tự")
         
         if self._evaluate_text(text):
             msg_ok = f" ↳ ✅ TÌM THẤY TÀI LIỆU ID HỢP LỆ: {path.name}"
@@ -159,34 +185,57 @@ class ClassifierEngine:
         text = ""
         try:
             if "pdf" in mime:
+                print(f"[OCR-DEBUG] ▶ PDFPlumber bắt đầu đọc: {path.name}")
                 with pdfplumber.open(str(path)) as pdf:
+                    print(f"[OCR-DEBUG]   PDF có {len(pdf.pages)} trang")
                     for i, page in enumerate(pdf.pages):
                         if i > 2: break # Only check first 3 pages
                         ext = page.extract_text()
                         if ext:
+                            print(f"[OCR-DEBUG]   Trang {i+1}: trích được {len(ext)} ký tự")
                             text += ext.lower() + " "
+                        else:
+                            print(f"[OCR-DEBUG]   Trang {i+1}: không có text")
+                print(f"[OCR-DEBUG] ◀ PDFPlumber xong: {path.name}")
             else:
                 # OCR Image
+                print(f"[OCR-DEBUG] ▶ EasyOCR bắt đầu quét ảnh: {path.name} ({mime})")
+                print(f"[OCR-DEBUG]   File size: {path.stat().st_size / 1024:.1f} KB")
+                t_read = _time.time()
                 results = self.reader.readtext(str(path), detail=0)
+                read_elapsed = _time.time() - t_read
                 text = " ".join(results).lower()
+                print(f"[OCR-DEBUG]   ⏱ EasyOCR readtext mất: {read_elapsed:.2f}s")
+                print(f"[OCR-DEBUG]   EasyOCR trả về {len(results)} đoạn text")
+                if results:
+                    print(f"[OCR-DEBUG]   Nội dung OCR: {text[:300]}{'...' if len(text) > 300 else ''}")
+                else:
+                    print(f"[OCR-DEBUG]   ⚠ EasyOCR không đọc được text nào!")
+                print(f"[OCR-DEBUG] ◀ EasyOCR xong: {path.name}")
         except Exception as e:
-            print(f"[AI] Text extraction failed on {path.name}: {e}")
+            print(f"[OCR-DEBUG] ✗ Text extraction FAILED trên {path.name}: {e}")
+        
+        print(f"[OCR-DEBUG] Tổng text trích xuất: {len(text)} ký tự")
         return text
 
     def _evaluate_text(self, text: str) -> bool:
         if not text.strip():
+            print(f"[OCR-DEBUG] ✗ Evaluate: text rỗng → bỏ qua")
             return False
             
         # Reject invalid docs
         for k in self.INVALID_KWS:
             if k in text:
+                print(f"[OCR-DEBUG] ✗ Evaluate: tìm thấy từ khóa LOẠI TRỪ '{k}' → loại bỏ")
                 return False
                 
         # Must contain at least one valid ID keyword
         for k in self.VALID_KWS:
             if k in text:
+                print(f"[OCR-DEBUG] ✓ Evaluate: tìm thấy từ khóa HỢP LỆ '{k}' → DOCUMENT!")
                 return True
-                
+        
+        print(f"[OCR-DEBUG] ✗ Evaluate: không tìm thấy từ khóa hợp lệ nào → loại bỏ")
         return False
 
     def _move(self, path: Path, dest_dir: Path):
