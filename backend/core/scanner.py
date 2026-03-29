@@ -15,8 +15,9 @@ from core.state import AppState
 from core.worker import run_account
 try:
     from core.classifier import classifier
-except ImportError:
-    pass
+    print("[SCANNER] ✓ classifier import thành công", flush=True)
+except ImportError as e:
+    print(f"[SCANNER] ✗ classifier import FAILED: {e}", flush=True)
 
 
 class Scanner:
@@ -54,9 +55,11 @@ class Scanner:
         self.state.init_accounts([a["email"] for a in accounts])
         OUTPUT_DIR.mkdir(exist_ok=True)
         try:
+            print("[SCANNER] Gọi classifier.start()...", flush=True)
             classifier.start()
+            print("[SCANNER] ✓ classifier.start() đã xong", flush=True)
         except NameError:
-            pass
+            print("[SCANNER] ✗ classifier chưa được import — NameError!", flush=True)
 
         self._thread = threading.Thread(
             target=self._run,
