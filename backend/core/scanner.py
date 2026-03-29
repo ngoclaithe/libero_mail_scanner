@@ -138,15 +138,14 @@ class Scanner:
                     rows.append({"email": email, "password": pwd})
             return rows
 
-        # Fallback to plain text split by colon, semicolon, pipe, or tab
-        import re
+        # Fallback: plain text, split by first ":" only (email:password)
         for line in lines:
-            parts = re.split(r'[:;|\t]+', line)
-            if len(parts) >= 2:
-                email = parts[0].strip()
-                pwd = parts[1].strip()
-                if email and pwd:
-                    rows.append({"email": email, "password": pwd})
+            if ':' not in line:
+                continue
+            email, pwd = line.split(':', 1)
+            email, pwd = email.strip(), pwd.strip()
+            if email and pwd:
+                rows.append({"email": email, "password": pwd})
         return rows
 
 

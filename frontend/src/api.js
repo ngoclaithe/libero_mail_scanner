@@ -1,4 +1,8 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+console.log('--- ENV DEBUG ---');
+console.log('VITE_API_URL:', import.meta.env.VITE_API_URL);
+console.log('Final API_URL Used:', API_URL);
+console.log('-----------------');
 
 function getToken() {
   return localStorage.getItem('token');
