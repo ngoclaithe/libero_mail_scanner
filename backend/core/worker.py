@@ -19,7 +19,7 @@ from core.config import (
 )
 from core.imap_client import new_client
 from core.proxy_pool import ProxyPool, ProxyInfo, ProxyStatus
-from core.state import state
+from core.state import AppState
 from core.classifier import ai_queue
 
 
@@ -48,11 +48,17 @@ def run_account(
     account:    dict,
     pool:       ProxyPool,
     stop_event: threading.Event,
+    user_state: "AppState" = None,
 ):
     """
     Download all image/* and PDF attachments from one account's outbox.
-    Updates global `state` singleton as it progresses.
+    Updates the per-user state object as it progresses.
     """
+    # Use passed-in per-user state (fall back to module-level for backwards compat)
+    if user_state is None:
+        from core.state import state as _global_state
+        user_state = _global_state
+    
     email_addr = account["email"]
     password   = account["password"]
     thread_name = threading.current_thread().name
@@ -61,7 +67,7 @@ def run_account(
     proxy: Optional[ProxyInfo] = pool.acquire(email_addr)
     proxy_id = proxy.id if proxy else "direct"
 
-    state.update_account(email_addr,
+    user_state.update_account(email_addr,
                          status="running",
                          proxy=proxy_id,
                          thread=thread_name)
@@ -76,7 +82,7 @@ def run_account(
         # ── Connect + login (with retry) ──────────────────────
         for attempt in range(RETRY_MAX):
             if stop_event.is_set():
-                state.update_account(email_addr, status="stopped")
+                user_state.update_account(email_addr, status="stopped")
                 return
             try:
                 mail = new_client(proxy=proxy)
@@ -85,20 +91,20 @@ def run_account(
             except imaplib.IMAP4.error as e:
                 err = str(e)
                 _handle_auth_error(proxy, pool, err)
-                state.update_account(email_addr, status="failed", error=err)
+                user_state.update_account(email_addr, status="failed", error=err)
                 return
             except Exception as e:
                 err = str(e)
                 if attempt == RETRY_MAX - 1:
                     _handle_conn_error(proxy, pool, err)
-                    state.update_account(email_addr, status="failed", error=err)
+                    user_state.update_account(email_addr, status="failed", error=err)
                     return
                 time.sleep(2 ** attempt)
 
         # ── Select outbox ─────────────────────────────────────
         status, _ = mail.select(f'"{SENT_FOLDER}"')
         if status != "OK":
-            state.update_account(email_addr,
+            user_state.update_account(email_addr,
                                  status="failed",
                                  error=f"Cannot open {SENT_FOLDER}")
             return
@@ -106,7 +112,7 @@ def run_account(
         _, data   = mail.search(None, "ALL")
         all_ids   = data[0].split() if data[0] else []
         total     = len(all_ids)
-        state.update_account(email_addr, total_mail=total)
+        user_state.update_account(email_addr, total_mail=total)
 
         images_found = 0
         manifest_rows: list[dict] = []
@@ -114,7 +120,7 @@ def run_account(
         # ── Fetch in batches ──────────────────────────────────
         for b_start in range(0, total, BATCH_SIZE):
             if stop_event.is_set():
-                state.update_account(email_addr, status="stopped")
+                user_state.update_account(email_addr, status="stopped")
                 return
 
             batch = all_ids[b_start: b_start + BATCH_SIZE]
@@ -163,26 +169,26 @@ def run_account(
                             "mime":      ct,
                         })
 
-                        state.update_account(email_addr,
+                        user_state.update_account(email_addr,
                                              images_found=images_found,
                                              last_file=fname)
-                        state.inc("images_total")
+                        user_state.inc("images_total")
 
                 except Exception:
                     pass   # non-fatal: skip this message
 
-            state.update_account(email_addr, processed=min(b_start + BATCH_SIZE, total))
+            user_state.update_account(email_addr, processed=min(b_start + BATCH_SIZE, total))
             time.sleep(0.2)
 
         # ── Write manifest ────────────────────────────────────
         _write_manifest(raw_dir.parent / "manifest.csv", manifest_rows)
 
-        state.update_account(email_addr, status="done")
-        state.inc("accounts_done")
+        user_state.update_account(email_addr, status="done")
+        user_state.inc("accounts_done")
 
     except Exception as e:
-        state.update_account(email_addr, status="failed", error=str(e))
-        state.inc("accounts_failed")
+        user_state.update_account(email_addr, status="failed", error=str(e))
+        user_state.inc("accounts_failed")
         if proxy:
             pool.mark_dead(proxy, str(e))
     finally:

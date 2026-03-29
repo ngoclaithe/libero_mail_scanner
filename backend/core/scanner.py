@@ -1,6 +1,6 @@
 """
 Scanner: orchestrates the ThreadPoolExecutor.
-Reads accounts.csv, loads ProxyPool, dispatches workers.
+Per-user scanner — each user has their own accounts file, state, and run.
 """
 
 import csv
@@ -11,7 +11,7 @@ from typing import Optional
 
 from core.config import MAX_WORKERS, PROXY_FILE, ACCOUNTS_FILE, OUTPUT_DIR
 from core.proxy_pool import ProxyPool
-from core.state import state
+from core.state import AppState
 from core.worker import run_account
 try:
     from core.classifier import classifier
@@ -20,12 +20,15 @@ except ImportError:
 
 
 class Scanner:
+    """Per-user scanner instance."""
 
-    def __init__(self):
+    def __init__(self, user_id: int):
+        self.user_id    = user_id
         self._stop      = threading.Event()
         self._thread:   Optional[threading.Thread] = None
         self.pool:      Optional[ProxyPool]        = None
         self._acc_file: str = ACCOUNTS_FILE
+        self.state      = AppState()   # Per-user state
         self._reload_pool()
 
     # ── Public API ────────────────────────────────────────────
@@ -37,7 +40,7 @@ class Scanner:
         return [a["email"] for a in self._load_accounts()]
 
     def start(self) -> tuple[bool, str]:
-        if state.status == "running":
+        if self.state.status == "running":
             return False, "Already running"
 
         accounts = self._load_accounts()
@@ -46,9 +49,9 @@ class Scanner:
 
         self._stop.clear()
         self._reload_pool()   # fresh proxy statuses on each run
-        state.reset()
-        state.set_status("running")
-        state.init_accounts([a["email"] for a in accounts])
+        self.state.reset()
+        self.state.set_status("running")
+        self.state.init_accounts([a["email"] for a in accounts])
         OUTPUT_DIR.mkdir(exist_ok=True)
         try:
             classifier.start()
@@ -59,21 +62,21 @@ class Scanner:
             target=self._run,
             args=(accounts,),
             daemon=True,
-            name="scanner-main",
+            name=f"scanner-user-{self.user_id}",
         )
         self._thread.start()
         return True, f"Started — {len(accounts)} accounts, {len(self.pool)} proxies"
 
     def stop(self):
         self._stop.set()
-        state.set_status("stopped")
+        self.state.set_status("stopped")
         try:
             classifier.stop()
         except NameError:
             pass
 
     def get_state(self) -> dict:
-        snap = state.snapshot()
+        snap = self.state.snapshot()
         snap["proxies"] = self.pool.all_info() if self.pool else []
         return snap
 
@@ -85,7 +88,7 @@ class Scanner:
             thread_name_prefix="worker",
         ) as executor:
             futures = {
-                executor.submit(run_account, acc, self.pool, self._stop): acc["email"]
+                executor.submit(run_account, acc, self.pool, self._stop, self.state): acc["email"]
                 for acc in accounts
             }
             for fut in as_completed(futures):
@@ -96,11 +99,11 @@ class Scanner:
                     fut.result()
                 except Exception as e:
                     email = futures[fut]
-                    state.update_account(email, status="failed", error=str(e))
-                    state.inc("accounts_failed")
+                    self.state.update_account(email, status="failed", error=str(e))
+                    self.state.inc("accounts_failed")
 
         if not self._stop.is_set():
-            state.set_status("done")
+            self.state.set_status("done")
         try:
             classifier.stop()
         except NameError:
@@ -149,5 +152,33 @@ class Scanner:
         return rows
 
 
-# Singleton used by FastAPI
-scanner = Scanner()
+class ScannerManager:
+    """
+    Manages per-user Scanner instances.
+    Each user gets their own isolated scanner with its own:
+      - accounts file
+      - state (progress, status, accounts)
+      - stop event
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._scanners: dict[int, Scanner] = {}
+
+    def get_scanner(self, user_id: int) -> Scanner:
+        """Get or create a scanner for the given user."""
+        with self._lock:
+            if user_id not in self._scanners:
+                self._scanners[user_id] = Scanner(user_id)
+            return self._scanners[user_id]
+
+    def remove_scanner(self, user_id: int):
+        """Remove a scanner (e.g., on cleanup)."""
+        with self._lock:
+            sc = self._scanners.pop(user_id, None)
+            if sc:
+                sc.stop()
+
+
+# Global manager singleton used by FastAPI
+scanner_manager = ScannerManager()

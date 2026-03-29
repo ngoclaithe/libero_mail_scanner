@@ -22,7 +22,7 @@ from auth import (
     verify_password, hash_password, create_access_token,
     get_current_user, require_admin,
 )
-from core.scanner import scanner
+from core.scanner import scanner_manager
 from core.config import OUTPUT_DIR
 
 # ── Init ──────────────────────────────────────────────────────
@@ -137,18 +137,21 @@ async def get_me(current_user: TokenData = Depends(get_current_user)):
 
 @app.get("/api/state")
 async def api_state(current_user: TokenData = Depends(get_current_user)):
-    return scanner.get_state()
+    sc = scanner_manager.get_scanner(current_user.user_id)
+    return sc.get_state()
 
 
 @app.post("/api/start")
 async def api_start(current_user: TokenData = Depends(get_current_user)):
-    ok, msg = scanner.start()
+    sc = scanner_manager.get_scanner(current_user.user_id)
+    ok, msg = sc.start()
     return {"ok": ok, "msg": msg}
 
 
 @app.post("/api/stop")
 async def api_stop(current_user: TokenData = Depends(get_current_user)):
-    scanner.stop()
+    sc = scanner_manager.get_scanner(current_user.user_id)
+    sc.stop()
     return {"ok": True, "msg": "Stop signal sent"}
 
 
@@ -162,13 +165,15 @@ async def api_upload(
     if not file.filename.lower().endswith((".csv", ".txt")):
         raise HTTPException(400, "Only .csv or .txt")
 
-    save_path = "accounts.csv"
+    # ── Save per-user accounts file ──
+    save_path = f"accounts_{current_user.user_id}.csv"
     content = await file.read()
     with open(save_path, "wb") as f:
         f.write(content)
 
-    scanner.set_accounts_file(save_path)
-    preview = scanner.accounts_preview()
+    sc = scanner_manager.get_scanner(current_user.user_id)
+    sc.set_accounts_file(save_path)
+    preview = sc.accounts_preview()
     count = len(preview)
 
     # ── Check credits ──
