@@ -9,7 +9,7 @@ RETRY_MAX    = 3
 IMAP_TIMEOUT = 30
 
 # ── Threading ────────────────────────────────────────────────
-MAX_WORKERS  = 10
+MAX_WORKERS  = 40
 
 # ── Files ────────────────────────────────────────────────────
 PROXY_FILE    = "SAR97653.txt"
