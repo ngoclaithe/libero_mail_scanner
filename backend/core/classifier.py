@@ -359,20 +359,16 @@ class ClassifierEngine:
             _log(f"[OCR-DEBUG] ✓ Evaluate: Có BARCODE / MRZ → MẶT SAU (BACK)")
             return True, "BACK"
             
-        # --- MẶT TRƯỚC (FRONT) ---
-        if has_text_kws:
-            if features.get('faces', 0) > 0:
-                _log(f"[OCR-DEBUG] ✓ Evaluate: Có Khuôn mặt + Có Text → MẶT TRƯỚC (FRONT)")
+        # --- MẶT CÓ CHỨA KHUÔN MẶT (FRONT) ---
+        if features.get('faces', 0) > 0:
+            if has_text_kws or has_strong:
+                _log(f"[OCR-DEBUG] ✓ Evaluate: TÌM THẤY KHUÔN MẶT + Text Hợp lệ → MẶT TRƯỚC (FRONT)")
                 return True, "FRONT"
+            else:
+                _log(f"[OCR-DEBUG] ✗ Evaluate: Có Khuôn mặt nhưng text OCR quá ít/sai → LOẠI THẲNG TAY")
+                return False, ""
             
-            # Ảnh/PDF Không thấy khuôn mặt (Ví dụ: Thẻ bị làm mờ mặt, scan đen trắng, cắt 1 góc)
-            # BẮT BUỘC: PHẢI CÓ TỪ KHÓA CHỨNG MINH ĐÓ LÀ CCCD Ý! 
-            # Nếu chỉ có "nome", "cognome" (như trong Đơn thuốc/hợp đồng) -> VỨT
-            if has_strong:
-                _log(f"[OCR-DEBUG] ✓ Evaluate: KHÔNG CÓ MẶT nhưng chứa từ khóa chuẩn CCCD ({matches}) -> VỚT THÀNH (FRONT)")
-                return True, "FRONT"
-            
-        _log(f"[OCR-DEBUG] ✗ Evaluate: KHÔNG PHẢI CCCD (Không mặt, không có từ khóa chuẩn CCCD) → LOẠI THẲNG TAY")
+        _log(f"[OCR-DEBUG] ✗ Evaluate: KHÔNG CÓ KHUÔN MẶT VÀ KHÔNG PHẢI MẶT SAU → LOẠI THẲNG TAY")
         return False, ""
 
     def _move(self, path: Path, dest_dir: Path):
