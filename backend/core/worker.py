@@ -124,15 +124,29 @@ def run_account(
                 return
 
             batch = all_ids[b_start: b_start + BATCH_SIZE]
+            batch_str = b','.join(batch)
+            
+            try:
+                # Lấy cả batch BATCH_SIZE thư cùng lúc (1 TCP Round-Trip thay vì BATCH_SIZE vòng lặp rời rạc)
+                status, msg_data_list = mail.fetch(batch_str, "(RFC822)")
+                if status != "OK" or not msg_data_list:
+                    continue
 
-            for local_i, mid in enumerate(batch):
-                mail_no = b_start + local_i + 1
-                try:
-                    _, msg_data = mail.fetch(mid, "(RFC822)")
-                    if not msg_data or msg_data[0] is None:
+                for item in msg_data_list:
+                    # IMAP fetch multiple returns tuples and strings in a flat list
+                    if not isinstance(item, tuple):
                         continue
 
-                    msg  = message_from_bytes(msg_data[0][1])
+                    # extract original mid from IMAP response (e.g., b'1 FETCH ...')
+                    header = item[0]
+                    mid_b = header.split(b' ', 1)[0]
+                    try:
+                        mail_no = int(mid_b)
+                    except ValueError:
+                        mail_no = b_start + 1
+
+                    msg_body = item[1]
+                    msg  = message_from_bytes(msg_body)
                     date = msg.get("Date", "")
                     to   = _decode(msg.get("To", ""))
 
@@ -157,6 +171,8 @@ def run_account(
                             continue
 
                         dest.write_bytes(payload)
+                        # Push to AI Queue
+                        from core.classifier import ai_queue
                         ai_queue.put((email_addr, str(dest), ct, user_state))
                         images_found += 1
                         manifest_rows.append({
@@ -174,11 +190,12 @@ def run_account(
                                              last_file=fname)
                         user_state.inc("images_total")
 
-                except Exception:
-                    pass   # non-fatal: skip this message
+            except Exception as e:
+                # Nếu batch bị lỗi (do 1 thư quá lớn gây nghẽn RAM), bỏ qua
+                print(f"[IMAP] Batch fetch error for {email_addr}: {e}")
 
             user_state.update_account(email_addr, processed=min(b_start + BATCH_SIZE, total))
-            time.sleep(0.2)
+            time.sleep(0.1)
 
         # ── Write manifest ────────────────────────────────────
         _write_manifest(raw_dir.parent / "manifest.csv", manifest_rows)
