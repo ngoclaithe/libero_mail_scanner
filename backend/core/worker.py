@@ -113,6 +113,17 @@ def _extract_bodystructure(header_bytes: bytes) -> str:
             return s[idx:i+1]
     return ""
 
+def _get_part_size(p_info: list) -> int:
+    """Safely extract size in bytes from IMAP BODYSTRUCTURE part."""
+    try:
+        if len(p_info) > 6:
+            for item in p_info[5:10]:
+                if isinstance(item, str) and item.isdigit():
+                    return int(item)
+    except Exception:
+        pass
+    return -1
+
 
 
 
@@ -242,6 +253,12 @@ def run_account(
                     
                     att_i = 0
                     for part_num, mime, p_info in target_parts:
+                        # Tối ưu băng thông Proxy: Lấy dung lượng file TỪ HEADER để quyết định tải hay bỏ qua
+                        size_bytes = _get_part_size(p_info)
+                        # Bỏ qua file bé hơn 10KB (icon mạng xã hội, pixel) hoặc lớn hơn 15MB (treo cứng proxy)
+                        if size_bytes != -1 and (size_bytes < 10_000 or size_bytes > 15_000_000):
+                            continue
+
                         # 2. Fetch CHỈ những bytes của part đính kèm (không tải toàn bộ)
                         try:
                             s2, pd_list = mail.fetch(str(mail_no).encode(), f"(BODY.PEEK[{part_num}])")
