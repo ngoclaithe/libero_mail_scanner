@@ -20,11 +20,17 @@ try:
     import cv2
     import numpy as np
     from PIL import Image
-    from pyzbar.pyzbar import decode as pyzbar_decode
     AI_ENABLED = True
 except ImportError as e:
     AI_ENABLED = False
     _import_error = str(e)
+
+try:
+    from pyzbar.pyzbar import decode as pyzbar_decode
+    ZBAR_ENABLED = True
+except ImportError as e:
+    ZBAR_ENABLED = False
+    _zbar_error = str(e)
 
 _log(f"[OCR-DEBUG] ══════════════════════════════════════════════════")
 _log(f"[OCR-DEBUG] Module classifier.py loaded")
@@ -64,9 +70,16 @@ class ClassifierEngine:
     def start(self):
         _log(f"[OCR-DEBUG] classifier.start() được gọi — AI_ENABLED={AI_ENABLED}")
         if not AI_ENABLED:
-            _log(f"[OCR-DEBUG] ✗ BỎ QUA: AI_ENABLED=False, classifier KHÔNG start!")
-            _log(f"[OCR-DEBUG] ✗ Lỗi import: {_import_error}")
+            msg = f"❌ LỖI NGHIÊM TRỌNG: AI KHÔNG thể khởi động do thiếu thư viện: {_import_error}"
+            _log(msg)
+            state.add_ai_log(msg)
             return
+            
+        if not ZBAR_ENABLED:
+            msg_warn = f"⚠️ CẢNH BÁO: Tính năng quét mã vạch (pyzbar) đang bị lỗi/thiếu thư viện hệ thống. Hãy chạy 'apt-get install libzbar0' trên biến VPS. Lỗi chi tiết: {_zbar_error}"
+            _log(msg_warn)
+            state.add_ai_log(msg_warn)
+            
         self._stop.clear()
         
         # Initialize EasyOCR Reader once (loading models takes time)
@@ -234,9 +247,10 @@ class ClassifierEngine:
                 return result
                 
             # Barcode check
-            barcodes = pyzbar_decode(img)
-            if barcodes:
-                result["has_barcode"] = True
+            if ZBAR_ENABLED:
+                barcodes = pyzbar_decode(img)
+                if barcodes:
+                    result["has_barcode"] = True
                 
             # Face check (using grayscale for faster/better detection)
             if self.face_cascade:
