@@ -472,10 +472,11 @@ class ClassifierEngine:
             'estratto conto', 'estratto.conto', 'conto corrente', 'bonifico',
             'ordinante', 'scontrino', 'assicurazione', 'catastale', 'catasto', 'planimetria',
             'ministero delle finanze', 'totale euro',
-            # INPS / ISEE / Thue (khong phai CCCD)
+            # INPS / ISEE / Thue / Y te (khong phai CCCD)
             'attestazione isee', 'isee ordinario', 'dichiarazione sostitutiva',
             'nucleo familiare', 'inps', 'prestazioni agevolate',
             'dati previdenziali', 'uniemens', 'percipiente', 'sostituto d\'imposta',
+            'tessera sanitaria', 'agenzia delle entrate', 'ministero dell\'economia e delle finanze',
             # Y te / benh vien / toa thuoc
             'pronto soccorso', 'ospedale', 'laboratorio di', 'esito test',
             'antigenico', 'tampone', 'referto', 'paziente', 'medico radiologo',
@@ -524,14 +525,12 @@ class ClassifierEngine:
             score_back += 3
             reasons_back.append('MRZ_line (+3)')
 
-        # [+4] Linear barcode 1D (da loc QR o layer 2.5)
-        if features.get('has_barcode'):
-            score_back += 4
-            reasons_back.append('barcode_1D (+4)')
+        # LƯU Ý: Giấy tờ Ý (CIE, Patente, Passaporto) KHÔNG CÓ mã vạch 1D ở mặt sau!
+        # Chỉ có Tessera Sanitaria (Thẻ y tế) hoặc Biên lai giao hàng mới có mã vạch 1D.
+        # Do đó, KHÔNG THÊM ĐIỂM cho barcode_1D để tránh nhận nhầm ảnh rác.
 
         # [+1] Codice Fiscale regex -- CHI tinh neu da co hard signal truoc
-        # (Codice Fiscale co trong moi giay to Y, khong phai dau hieu rieng CCCD)
-        has_hard = features.get('has_barcode') or (has_mrz_arrows and has_ita)
+        has_hard = (has_mrz_arrows and has_ita) or mrz_line
         if has_hard:
             codice_fiscale = re.search(
                 r'\b[A-Z]{6}\d{2}[A-EHLMPRST]\d{2}[A-Z]\d{3}[A-Z]\b',
