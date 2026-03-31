@@ -128,9 +128,14 @@ def run_account(
             
             try:
                 # Lấy cả batch BATCH_SIZE thư cùng lúc (1 TCP Round-Trip thay vì BATCH_SIZE vòng lặp rời rạc)
+                t_fetch = time.time()
                 status, msg_data_list = mail.fetch(batch_str, "(RFC822)")
+                t_elapsed = time.time() - t_fetch
+                
                 if status != "OK" or not msg_data_list:
                     continue
+                    
+                print(f"[IMAP-PERF] {email_addr.split('@')[0]}: Tải một lúc {len(batch)} email tốn {t_elapsed:.2f}s", flush=True)
 
                 for item in msg_data_list:
                     # IMAP fetch multiple returns tuples and strings in a flat list

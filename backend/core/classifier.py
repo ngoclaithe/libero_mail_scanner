@@ -8,10 +8,19 @@ import cv2
 from pathlib import Path
 from email.message import Message
 
-cv2.setNumThreads(1)
+cv2.setNumThreads(1)  # Khôi phục
+
+# Bật/Tắt log gỡ lỗi chi tiết của toàn bộ AI (để k rác console)
+SHOW_VERBOSE_OCR_LOGS = False
 
 def _log(msg: str):
     """Print with immediate flush — required for PM2/non-TTY environments."""
+    if "[OCR-DEBUG]" in msg and "Layer" in msg:
+        if not SHOW_VERBOSE_OCR_LOGS: return
+    if "[OCR-DEBUG]" in msg and "Khuôn mặt" in msg:
+        if not SHOW_VERBOSE_OCR_LOGS: return
+    if "[OCR-DEBUG] ─" in msg or "[OCR-DEBUG] 📥" in msg or "[OCR-DEBUG]   " in msg:
+        if not SHOW_VERBOSE_OCR_LOGS: return
     print(msg, flush=True)
 
 
@@ -144,8 +153,10 @@ class ClassifierEngine:
                 t_start = _time.time()
                 self.process_file(email_addr, Path(file_path), mime, user_state)
                 t_total = _time.time() - t_start
-                _log(f"[OCR-DEBUG] ⏱ Tổng thời gian xử lý: {t_total:.2f}s")
-                _log(f"[OCR-DEBUG] ───────────────────────────────────────")
+                
+                # Báo cáo hiệu năng luôn in ra màn hình
+                print(f"[AI-PERF] {threading.current_thread().name} quét {Path(file_path).name} xong trong {t_total:.2f}s (Queue: ~{ai_queue.qsize()})", flush=True)
+                
                 ai_queue.task_done()
             except queue.Empty:
                 continue
