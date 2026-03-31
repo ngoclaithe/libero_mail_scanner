@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { apiGetState, apiStart, apiStop, apiUploadAccounts, apiUploadProxies, apiGetGallery, getMediaUrl, apiDeleteGallery, apiDownloadGallery } from '../api';
+import { apiGetState, apiStart, apiStop, apiUploadAccounts, apiUploadProxies, apiGetGallery, getMediaUrl, apiDeleteGallery, apiDownloadGallery, apiClearAllGallery } from '../api';
 import {
   Menu, Mail, Image as ImageIcon, Activity, Globe,
   Play, Square, LogOut, Settings, User as UserIcon,
@@ -439,6 +439,18 @@ function GalleryTab({ gallery }) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
 
+  const handleClearAll = async () => {
+    if (!window.confirm("BẠN CÓ CHẮC MUỐN XÓA TẤT CẢ ẢNH TRONG HỆ THỐNG?\nHành động này xóa sạch Data của mọi tài khoản và không thể hoàn tác!")) return;
+    setIsDeleting(true);
+    try {
+      const res = await apiClearAllGallery();
+      if(res.ok) alert(res.msg);
+    } catch (err) {
+      alert("Lỗi khi xóa CSDL ảnh!");
+    }
+    setIsDeleting(false);
+  };
+
   // Build email list with counts
   const emailData = useMemo(() => {
     return Object.entries(gallery).map(([slug, info]) => {
@@ -604,7 +616,13 @@ function GalleryTab({ gallery }) {
             <div className="gal-layout">
               {/* ── Sidebar: Email List ── */}
               <div className="gal-sidebar">
-                <div className="gal-sidebar-header">📧 Tài khoản Email</div>
+                <div className="gal-sidebar-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>📧 Tài khoản Email</span>
+                  <button onClick={handleClearAll} disabled={isDeleting} style={{
+                    background: 'var(--red)', color: 'white', border: 'none', borderRadius: '4px',
+                    padding: '4px 8px', fontSize: '12px', cursor: 'pointer'
+                  }} title="Xóa toàn bộ CSDL Ảnh">🗑️ Xóa Sạch DB</button>
+                </div>
                 <div className="gal-sidebar-list">
                   {emailData.map(e => (
                     <button

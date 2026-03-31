@@ -134,6 +134,14 @@ export async function apiDeleteGallery(files) {
   return res.json();
 }
 
+export async function apiClearAllGallery() {
+  const res = await fetch(`${API_URL}/api/gallery/clear-all`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+  });
+  return res.json();
+}
+
 export async function apiDownloadGallery(files) {
   const res = await fetch(`${API_URL}/api/gallery/download`, {
     method: 'POST',

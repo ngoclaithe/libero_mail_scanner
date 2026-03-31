@@ -277,7 +277,20 @@ async def api_gallery_delete(req: GalleryBulkRequest, current_user: TokenData = 
         except Exception:
             pass
     return {"ok": True, "msg": f"Đã xóa thành công {deleted} ảnh"}
-
+    
+@app.post("/api/gallery/clear-all")
+async def api_gallery_clear_all(current_user: TokenData = Depends(get_current_user)):
+    import shutil
+    try:
+        if OUTPUT_DIR.exists():
+            for item in OUTPUT_DIR.iterdir():
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
+        return {"ok": True, "msg": "Đã dọn sạch toàn bộ thư viện ảnh!"}
+    except Exception as e:
+        return {"ok": False, "msg": f"Lỗi xóa: {e}"}
 
 @app.post("/api/gallery/download")
 async def api_gallery_download(req: GalleryBulkRequest, current_user: TokenData = Depends(get_current_user)):
