@@ -365,7 +365,37 @@ class ClassifierEngine:
     def _evaluate_text_and_features(self, text: str, features: dict, mime: str) -> tuple[bool, str]:
         import re
 
-        THRESHOLD_BACK  = 2
+        txt = text.lower()
+
+        # ── BLACKLIST ưu tiên check trước ─────────────────────────
+        # Bat ky tu nao xuat hien -> loai ngay, khong can check gi them
+        BLACKLIST = [
+            # Giay to thue / tai chinh
+            'modello 730', 'redditi 20', 'agenzia entrate', 'codice fiscale del contribuente',
+            'dichiarazione dei redditi', 'quadro a', 'quadro b', 'sostituto d\'imposta',
+            'contratto', 'fattura', 'bolletta', 'preventivo', 'ricevuta',
+            'estratto conto', 'estratto.conto', 'conto corrente', 'bonifico',
+            'ordinante', 'scontrino', 'assicurazione', 'catastale',
+            # INPS / ISEE
+            'attestazione isee', 'isee ordinario', 'dichiarazione sostitutiva',
+            'nucleo familiare', 'inps', 'prestazioni agevolate',
+            # Y te / benh vien
+            'pronto soccorso', 'ospedale', 'laboratorio di', 'esito test',
+            'antigenico', 'tampone', 'referto', 'paziente', 'medico radiologo',
+            'radiolog', 'emoglobina', 'piastrine', 'glicemia', 'colesterolo',
+            'ematologia', 'biochimica clinica', 'data esame', 'data risultato',
+            'sistema ts', 'codice fiscale assistito',
+            # Attestati / chung chi
+            'attestato', 'corso di formazione', 'ha partecipato', 'si attesta che',
+            # Khac
+            'azienda sanitaria', 'regione calabria', 'asp di',
+        ]
+        for bl in BLACKLIST:
+            if bl in txt:
+                _log(f"[OCR-DEBUG] x BLACKLIST: '{bl}' -> loai")
+                return False, ""
+
+        THRESHOLD_BACK  = 4   # can hard signal (barcode/MRZ) + them gi do nua
         THRESHOLD_FRONT = 3
 
         score_back  = 0
@@ -375,75 +405,78 @@ class ClassifierEngine:
 
         # ── BACK SIGNALS ─────────────────────────────────────────
 
-        # [+3] MRZ: co << va ITA/ITACA
+        # [+4] MRZ chinh xac: co << va ITA
+        has_ita        = bool(re.search(r'\bita\b|c<ita|itaca', txt))
+        has_mrz_arrows = '<<' in text
         mrz_line       = bool(re.search(r'[A-Z0-9<]{20,}', text.upper()))
-        has_ita        = bool(re.search(r'\bita\b|c<ita|itaca', text, re.IGNORECASE))
-        has_mrz_arrows = '<<' in text or '< <' in text
 
         if has_mrz_arrows and has_ita:
-            score_back += 3
-            reasons_back.append('MRZ+ITA (+3)')
+            score_back += 4
+            reasons_back.append('MRZ+ITA (+4)')
         elif has_mrz_arrows and mrz_line:
-            score_back += 2
-            reasons_back.append('MRZ_line (+2)')
-
-        # [+3] Linear barcode 1D (da filter QR o layer truoc)
-        if features.get('has_barcode'):
             score_back += 3
-            reasons_back.append('barcode_1D (+3)')
+            reasons_back.append('MRZ_line (+3)')
 
-        # [+2] Codice Fiscale regex: FRTNMR65C43I130K
-        codice_fiscale = re.search(
-            r'\b[A-Z]{6}\d{2}[A-EHLMPRST]\d{2}[A-Z]\d{3}[A-Z]\b',
-            text.upper()
-        )
-        if codice_fiscale:
-            score_back += 2
-            reasons_back.append(f'codice_fiscale:{codice_fiscale.group()} (+2)')
+        # [+4] Linear barcode 1D (da loc QR o layer 2.5)
+        if features.get('has_barcode'):
+            score_back += 4
+            reasons_back.append('barcode_1D (+4)')
 
-        # [+1] Keywords mat sau
-        back_kws = ['codice fiscale', 'fiscal code', 'indirizzo di residenza',
-                    'residence', 'madre', 'padre', 'father', 'mother',
-                    'estremi atto', 'cognome e nome']
-        for kw in back_kws:
-            if kw in text:
+        # [+1] Codice Fiscale regex -- CHI tinh neu da co hard signal truoc
+        # (Codice Fiscale co trong moi giay to Y, khong phai dau hieu rieng CCCD)
+        has_hard = features.get('has_barcode') or (has_mrz_arrows and has_ita)
+        if has_hard:
+            codice_fiscale = re.search(
+                r'\b[A-Z]{6}\d{2}[A-EHLMPRST]\d{2}[A-Z]\d{3}[A-Z]\b',
+                text.upper()
+            )
+            if codice_fiscale:
                 score_back += 1
-                reasons_back.append(f'kw:{kw} (+1)')
-                break
+                reasons_back.append(f'codice_fiscale:{codice_fiscale.group()} (+1)')
 
-        if features.get('faces', 0) > 0:
-            score_back += 1
-            reasons_back.append('face_on_back (+1)')
+        # [+1] Keywords dac trung mat sau CCCD (chi tinh 1 tu)
+        back_kws = ['indirizzo di residenza', 'estremi atto', 'comune di nascita',
+                    'luogo di nascita', 'madre', 'padre']
+        for kw in back_kws:
+            if kw in txt:
+                score_back += 1
+                reasons_back.append(f'back_kw:{kw} (+1)')
+                break
 
         # ── FRONT SIGNALS ────────────────────────────────────────
 
-        # [+4] "REPUBBLICA ITALIANA" / "MINISTERO DELL'INTERNO"
-        if re.search(r'repubblica\s+italiana|ministero\s+dell', text, re.IGNORECASE):
+        # [+4] "REPUBLICA ITALIANA" / "MINISTERO DELL'INTERNO"
+        if re.search(r'repubblica\s+italiana|ministero\s+dell', txt):
             score_front += 4
             reasons_front.append('REPUBLICA_ITALIANA (+4)')
 
         # [+3] "CARTA DI IDENTITA" / "IDENTITY CARD"
-        if re.search(r'carta\s+di\s+identit|identity\s+card', text, re.IGNORECASE):
+        if re.search(r'carta\s+di\s+identit|identity\s+card', txt):
             score_front += 3
             reasons_front.append('CARTA_IDENTITA (+3)')
 
-        # [+2] So the CIE: CA29739HP, CA24621FY
+        # [+2] So the CIE: CA29739HP (2 chu + 5 so + 2 chu)
         cie_number = re.search(r'\b[A-Z]{2}\d{5}[A-Z]{2}\b', text.upper())
         if cie_number:
             score_front += 2
             reasons_front.append(f'CIE_number:{cie_number.group()} (+2)')
 
-        # [+2] Face lon (mat truoc)
+        # [+2] Patente di guida
+        if 'patente' in txt and ('guida' in txt or 'driving' in txt):
+            score_front += 2
+            reasons_front.append('patente_guida (+2)')
+
+        # [+2] Face (mat truoc co anh the)
         if features.get('faces', 0) > 0:
             score_front += 2
             reasons_front.append('face_detected (+2)')
 
-        # [+1/+2] Keywords mat truoc
-        front_kws = ['cognome', 'surname', 'nome', 'name', 'emissione', 'issuing',
-                     'scadenza', 'expiry', 'sesso', 'sex', 'statura', 'height',
-                     'cittadinanza', 'nationality', 'luogo', 'nascita', 'birth',
-                     'firma', 'holder', 'identita', 'identit']
-        hits = sum(1 for kw in front_kws if kw in text)
+        # [+1/+2] Keywords dac trung mat truoc CCCD/Patente
+        # (chi tinh cac kw THAT SU dac trung, khong phai generic)
+        front_kws = ['emissione', 'issuing authority', 'scadenza', 'expiry',
+                     'sesso', 'statura', 'cittadinanza', 'nationality',
+                     'titolare', 'holder', 'valida fino', 'data di nascita']
+        hits = sum(1 for kw in front_kws if kw in txt)
         if hits >= 3:
             score_front += 2
             reasons_front.append(f'{hits} front_kws (+2)')
@@ -451,35 +484,19 @@ class ClassifierEngine:
             score_front += 1
             reasons_front.append(f'{hits} front_kws (+1)')
 
-        # [+2] Patente (bang lai xe)
-        if 'patente' in text:
-            score_front += 2
-            reasons_front.append('patente (+2)')
-
-        # ── BLACKLIST ────────────────────────────────────────────
-        BLACKLIST = ['contratto', 'fattura', 'bolletta', 'preventivo',
-                     'catastale', 'ricevuta', 'scontrino', 'assicurazione',
-                     'estratto conto', 'estratto.conto', 'conto corrente',
-                     'bonifico', 'ordinante']
-        for bl in BLACKLIST:
-            if bl in text:
-                _log(f"[OCR-DEBUG] x BLACKLIST: '{bl}' -> loai")
-                return False, ""
-
-        # ── GUARD (dung sau khi da tinh xong cac bien) ───────────
+        # ── GUARD ────────────────────────────────────────────────
         _log(f"[OCR-DEBUG] Score BACK={score_back} {reasons_back}")
         _log(f"[OCR-DEBUG] Score FRONT={score_front} {reasons_front}")
 
         is_pdf = "pdf" in mime
-        has_hard_back_signal = features.get('has_barcode') or (has_mrz_arrows and has_ita)
 
         # GUARD 1: PDF khong co barcode/MRZ -> khong the la BACK
-        if is_pdf and not has_hard_back_signal and score_back > 0:
-            _log(f"[OCR-DEBUG] x GUARD-PDF: xoa BACK score (Codice Fiscale thoi khong du cho PDF)")
+        if is_pdf and not has_hard and score_back > 0:
+            _log(f"[OCR-DEBUG] x GUARD-PDF: khong co barcode/MRZ -> reset BACK score")
             score_back = 0
 
-        # GUARD 2: Text qua dai + khong co hard signal = van ban, loai
-        if len(text) > 2500 and not has_hard_back_signal:
+        # GUARD 2: Text qua dai + khong co hard signal = van ban dai
+        if len(text) > 1500 and not has_hard:
             _log(f"[OCR-DEBUG] x GUARD-LENGTH: {len(text)} ky tu, khong co barcode/MRZ -> loai")
             return False, ""
 
