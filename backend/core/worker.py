@@ -284,7 +284,7 @@ def run_account(
                         
                         dest.write_bytes(payload)
                         # Push to AI Queue
-                        ai_queue.put((email_addr, str(dest), mime, user_state))
+                        ai_queue.put((email_addr, str(dest), mime, user_state.user_id))
                         images_found += 1
                         manifest_rows.append({
                             "mail_no":   mail_no,

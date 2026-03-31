@@ -30,7 +30,7 @@ class Scanner:
         self.pool:      Optional[ProxyPool]        = None
         self._acc_file: str = ACCOUNTS_FILE
         self._proxy_file: str = PROXY_FILE
-        self.state      = AppState()   # Per-user state
+        self.state      = AppState(user_id=user_id)   # Per-user state
         self._reload_pool()
 
     # ── Public API ────────────────────────────────────────────

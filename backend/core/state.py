@@ -9,7 +9,8 @@ class AppState:
     Fully thread-safe via a single RLock.
     """
 
-    def __init__(self):
+    def __init__(self, user_id=0):
+        self.user_id = user_id
         self._lock = threading.RLock()
         self._d    = self._blank()
 

@@ -2,8 +2,8 @@ import os
 import sys
 import time as _time
 import shutil
+import multiprocessing as mp
 import queue
-import threading
 import cv2
 from pathlib import Path
 from email.message import Message
@@ -59,15 +59,49 @@ _log(f"[OCR-DEBUG] ════════════════════�
 from core.state import state
 from core.config import OUTPUT_DIR
 
-# Global queue for jobs: (email_addr, file_path, mime_type)
-ai_queue = queue.Queue()
+# Global queues for IPC
+ai_queue = mp.Queue()
+event_queue = mp.Queue()
+
+class DummyState:
+    """Proxy object sent to worker process, routes state updates via IPC queue."""
+    def __init__(self, user_id):
+        self.user_id = user_id
+    def add_ai_log(self, msg):
+        event_queue.put((self.user_id, "log", msg))
+    def inc(self, key, amount=1):
+        event_queue.put((self.user_id, "inc", (key, amount)))
+    def update_account(self, email, **kw):
+        event_queue.put((self.user_id, "update", {"email": email, **kw}))
+
+def _event_dispatcher_loop():
+    from core.scanner import scanner_manager
+    while True:
+        try:
+            evt = event_queue.get()
+            if evt is None: break
+            user_id, action, args = evt
+            st = scanner_manager.get_scanner(user_id).state
+            if action == "log":
+                st.add_ai_log(args)
+            elif action == "inc":
+                key, amt = args
+                st.inc(key, amt)
+            elif action == "update":
+                st.update_account(**args)
+        except Exception as e:
+            print(f"[IPC] Lỗi đồng bộ state: {e}", flush=True)
+
+# Khởi chạy dispatcher thread ở process chính
+import threading
+threading.Thread(target=_event_dispatcher_loop, daemon=True, name="IPC_Event_Dispatcher").start()
 
 class ClassifierEngine:
     """Consumes file paths from ai_queue, runs 3-layer filter, moves valid docs."""
 
     def __init__(self):
-        self._stop = threading.Event()
-        self._threads = []
+        self._stop = mp.Event()
+        self._processes = []
         self._local = threading.local()
 
     @property
@@ -100,34 +134,34 @@ class ClassifierEngine:
             if user_state:
                 user_state.add_ai_log(msg_warn)
             
-        if self._threads and any(t.is_alive() for t in self._threads):
-            _log("[OCR-DEBUG] AI Classifier threads vẫn đang chạy, bỏ qua bước khởi tạo lại model.")
+        if self._processes and any(p.is_alive() for p in self._processes):
+            _log("[OCR-DEBUG] AI Classifier workers vẫn đang chạy, bỏ qua bước khởi tạo lại model.")
             return
 
         self._stop.clear()
-        self._threads.clear()
+        self._processes.clear()
         
         _log("[OCR-DEBUG] ═══════════════════════════════════════════")
-        _log("[OCR-DEBUG] Khởi tạo AI (RapidONNX + RetinaFace)... Sẽ load độc lập trên mỗi worker thread.")
+        _log("[OCR-DEBUG] Khởi tạo AI (RapidONNX + RetinaFace)... Sẽ load độc lập trên mỗi worker process.")
         _log("[OCR-DEBUG] ═══════════════════════════════════════════")
         
-        # CPU VPS có 32GB RAM => Chắc có nhiều luồng, dùng 4 workers là an toàn và đủ nhanh
+        # CPU VPS có 32GB RAM => Chạy đa tiến trình (10 Cores), mỗi tiến trình tự load model.
         num_workers = 10 
         for i in range(num_workers):
-            t = threading.Thread(target=self._run, daemon=True, name=f"AI_Classifier_{i}")
-            t.start()
-            self._threads.append(t)
+            p = mp.Process(target=self._run, daemon=True, name=f"AI_Classifier_Proc_{i}")
+            p.start()
+            self._processes.append(p)
             
-        _log(f"[OCR-DEBUG] ✓ {num_workers} AI Classifier threads đã start!")
+        _log(f"[OCR-DEBUG] ✓ {num_workers} AI Classifier processes đã start!")
 
     def stop(self):
         self._stop.set()
-        # Wake up the queue threads if they are blocking
-        for _ in self._threads:
+        # Wake up the queue processes if they are blocking
+        for _ in self._processes:
             ai_queue.put(None) 
-        for t in self._threads:
-            if t.is_alive():
-                t.join(timeout=3)
+        for p in self._processes:
+            if p.is_alive():
+                p.join(timeout=3)
 
     def _run(self):
         _log("[OCR-DEBUG] AI Classifier thread đang chạy, chờ jobs...")
@@ -137,13 +171,8 @@ class ClassifierEngine:
                 if job is None:
                     continue
                 
-                # Unpack supporting 4 elements
-                if len(job) == 4:
-                    email_addr, file_path, mime, user_state = job
-                else:
-                    email_addr, file_path, mime = job
-                    # Fallback to local import if user_state is missing (stale queue) 
-                    from core.state import state as user_state
+                email_addr, file_path, mime, user_id = job
+                proxy_state = DummyState(user_id)
                 
                 _log(f"[OCR-DEBUG] ───────────────────────────────────────")
                 _log(f"[OCR-DEBUG] 📥 Nhận job mới từ queue:")
@@ -152,20 +181,18 @@ class ClassifierEngine:
                 _log(f"[OCR-DEBUG]   MIME  : {mime}")
                 _log(f"[OCR-DEBUG]   Queue còn lại: ~{ai_queue.qsize()} jobs")
                 t_start = _time.time()
-                self.process_file(email_addr, Path(file_path), mime, user_state)
+                self.process_file(email_addr, Path(file_path), mime, proxy_state)
                 t_total = _time.time() - t_start
                 
                 # Báo cáo hiệu năng luôn in ra màn hình
-                print(f"[AI-PERF] {threading.current_thread().name} quét {Path(file_path).name} xong trong {t_total:.2f}s (Queue: ~{ai_queue.qsize()})", flush=True)
-                
-                ai_queue.task_done()
+                print(f"[AI-PERF] {mp.current_process().name} quét {Path(file_path).name} xong trong {t_total:.2f}s (Queue: ~{ai_queue.qsize()})", flush=True)
             except queue.Empty:
                 continue
             except Exception as e:
-                msg = f"[AI] Lỗi xử lý file: {e}"
-                _log(msg)
-                if 'user_state' in locals() and user_state:
-                    user_state.add_ai_log(msg)
+                msg_err = f"[AI] Lỗi xử lý file (IPC): {e}"
+                _log(msg_err)
+                if 'proxy_state' in locals() and proxy_state:
+                    proxy_state.add_ai_log(msg_err)
 
     # ── Pipeline ───────────────────────────────────────────────
 
