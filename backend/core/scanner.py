@@ -61,7 +61,7 @@ class Scanner:
         OUTPUT_DIR.mkdir(exist_ok=True)
         try:
             print("[SCANNER] Gọi classifier.start()...", flush=True)
-            classifier.start()
+            classifier.start(user_state=self.state)
             print("[SCANNER] ✓ classifier.start() đã xong", flush=True)
         except NameError:
             print("[SCANNER] ✗ classifier chưa được import — NameError!", flush=True)

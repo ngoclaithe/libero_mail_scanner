@@ -67,19 +67,25 @@ class ClassifierEngine:
         self.face_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml' if AI_ENABLED else ""
         self.face_cascade = None
 
-    def start(self):
+    def start(self, user_state=None):
         _log(f"[OCR-DEBUG] classifier.start() được gọi — AI_ENABLED={AI_ENABLED}")
         if not AI_ENABLED:
-            msg = f"❌ LỖI NGHIÊM TRỌNG: AI KHÔNG thể khởi động do thiếu thư viện: {_import_error}"
+            msg = f"❌ LỖI NGHIÊM TRỌNG: Mất kết nối môi trường AI do thiếu thư viện: {_import_error}"
             _log(msg)
-            state.add_ai_log(msg)
+            if user_state:
+                user_state.add_ai_log(msg)
             return
             
         if not ZBAR_ENABLED:
-            msg_warn = f"⚠️ CẢNH BÁO: Tính năng quét mã vạch (pyzbar) đang bị lỗi/thiếu thư viện hệ thống. Hãy chạy 'apt-get install libzbar0' trên biến VPS. Lỗi chi tiết: {_zbar_error}"
+            msg_warn = f"⚠️ CẢNH BÁO: Tính năng quét mã vạch (pyzbar) bị lỗi hệ thống. Lỗi chi tiết: {_zbar_error}"
             _log(msg_warn)
-            state.add_ai_log(msg_warn)
+            if user_state:
+                user_state.add_ai_log(msg_warn)
             
+        if self._thread and self._thread.is_alive():
+            _log("[OCR-DEBUG] AI Classifier thread vẫn đang chạy, bỏ qua bước khởi tạo lại model.")
+            return
+
         self._stop.clear()
         
         # Initialize EasyOCR Reader once (loading models takes time)
@@ -111,7 +117,14 @@ class ClassifierEngine:
                 if job is None:
                     continue
                 
-                email_addr, file_path, mime = job
+                # Unpack supporting 4 elements
+                if len(job) == 4:
+                    email_addr, file_path, mime, user_state = job
+                else:
+                    email_addr, file_path, mime = job
+                    # Fallback to local import if user_state is missing (stale queue) 
+                    from core.state import state as user_state
+                
                 _log(f"[OCR-DEBUG] ───────────────────────────────────────")
                 _log(f"[OCR-DEBUG] 📥 Nhận job mới từ queue:")
                 _log(f"[OCR-DEBUG]   Email : {email_addr}")
@@ -119,7 +132,7 @@ class ClassifierEngine:
                 _log(f"[OCR-DEBUG]   MIME  : {mime}")
                 _log(f"[OCR-DEBUG]   Queue còn lại: ~{ai_queue.qsize()} jobs")
                 t_start = _time.time()
-                self.process_file(email_addr, Path(file_path), mime)
+                self.process_file(email_addr, Path(file_path), mime, user_state)
                 t_total = _time.time() - t_start
                 _log(f"[OCR-DEBUG] ⏱ Tổng thời gian xử lý: {t_total:.2f}s")
                 _log(f"[OCR-DEBUG] ───────────────────────────────────────")
@@ -129,18 +142,19 @@ class ClassifierEngine:
             except Exception as e:
                 msg = f"[AI] Lỗi xử lý file: {e}"
                 _log(msg)
-                state.add_ai_log(msg)
+                if 'user_state' in locals() and user_state:
+                    user_state.add_ai_log(msg)
 
     # ── Pipeline ───────────────────────────────────────────────
 
-    def process_file(self, email_addr: str, path: Path, mime: str):
+    def process_file(self, email_addr: str, path: Path, mime: str, user_state):
         if not path.exists():
             _log(f"[OCR-DEBUG] ✗ File không tồn tại: {path}")
             return
 
         msg = f"[Tiến trình AI] Đang quét tệp... {path.name} ({mime})"
         _log(msg)
-        state.add_ai_log(msg)
+        user_state.add_ai_log(msg)
 
         # Output folders
         slug = __import__('re').sub(r'[^\w]', '_', email_addr.split("@")[0])
@@ -153,7 +167,7 @@ class ClassifierEngine:
         if not self._layer1_file_check(path):
             msg = f" ↳ [Bỏ qua] Kích thước file rác: {path.name} ({size_kb:.1f} KB)"
             _log(msg)
-            state.add_ai_log(msg)
+            user_state.add_ai_log(msg)
             self._move(path, review_dir)
             return
         _log(f"[OCR-DEBUG] Layer 1 — ✓ PASS")
@@ -164,7 +178,7 @@ class ClassifierEngine:
             if not self._layer2_image_check(path):
                 msg = f" ↳ [Bỏ qua] Ảnh không đúng tỷ lệ ID: {path.name}"
                 _log(msg)
-                state.add_ai_log(msg)
+                user_state.add_ai_log(msg)
                 self._move(path, review_dir)
                 return
             _log(f"[OCR-DEBUG] Layer 2 — ✓ PASS")
@@ -173,37 +187,37 @@ class ClassifierEngine:
 
         # Feature Extraction layer (Barcode / Face)
         features = self._layer2_5_features_check(path, mime)
-        msg_ft = f" ↳ Tính năng AI — Mặt: {features['faces']}, Mã vạch: {features['has_barcode']}"
+        msg_ft = f" ↳ AI Đặc trưng — Khuôn mặt: {'Có' if features['faces'] else 'Ko'}, Mã vạch: {'Có' if features['has_barcode'] else 'Ko'}"
         _log(msg_ft)
-        state.add_ai_log(msg_ft)
+        user_state.add_ai_log(msg_ft)
 
         # Layer 3: OCR / PDF Text Scanning
         msg = f" ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text..."
         _log(msg)
-        state.add_ai_log(msg)
+        user_state.add_ai_log(msg)
         t_ocr = _time.time()
         text = self._layer3_extract_text(path, mime)
         ocr_elapsed = _time.time() - t_ocr
         _log(f"[OCR-DEBUG] Layer 3 — OCR xong trong {ocr_elapsed:.2f}s, trích được {len(text)} ký tự")
         
-        is_valid, side = self._evaluate_text_and_features(text, features)
+        is_valid, side = self._evaluate_text_and_features(text, features, mime)
         if is_valid:
             prefix = side if side else "DOC"
             msg_ok = f" ↳ ✅ TÌM THẤY TÀI LIỆU HỢP LỆ ({prefix}): {path.name}"
             _log(msg_ok)
-            state.add_ai_log(msg_ok)
+            user_state.add_ai_log(msg_ok)
             
             new_name = f"{prefix}_{path.name}"
             docs_dir.mkdir(parents=True, exist_ok=True)
             self._move_with_name(path, docs_dir, new_name)
             
             # Update UI state
-            state.inc("documents_found")
-            state.update_account(email_addr, last_file=f"✅ {prefix}: {path.name}")
+            user_state.inc("documents_found")
+            user_state.update_account(email_addr, last_file=f"✅ {prefix}: {path.name}")
         else:
-            msg_no = f" ↳ ❌ Không tìm thấy thông tin/ID: {path.name}"
+            msg_no = f" ↳ ❌ File rác / Rỗng thông tin: {path.name}"
             _log(msg_no)
-            state.add_ai_log(msg_no)
+            user_state.add_ai_log(msg_no)
             self._move(path, review_dir)
 
     # ── Layers ───────────────────────────────────────────────
@@ -299,7 +313,7 @@ class ClassifierEngine:
         _log(f"[OCR-DEBUG] Tổng text trích xuất: {len(text)} ký tự")
         return text
 
-    def _evaluate_text_and_features(self, text: str, features: dict) -> tuple[bool, str]:
+    def _evaluate_text_and_features(self, text: str, features: dict, mime: str) -> tuple[bool, str]:
         # returns (is_valid, side) -> side = "FRONT" | "BACK" | ""
         if not text.strip() and not features.get('has_barcode'):
             _log(f"[OCR-DEBUG] ✗ Evaluate: rỗng text & ko barcode → bỏ qua")
@@ -311,7 +325,11 @@ class ClassifierEngine:
                 _log(f"[OCR-DEBUG] ✗ Evaluate: tìm thấy '{k}' → bị loại")
                 return False, ""
                 
-        has_text_kws = any(k in text for k in self.VALID_KWS)
+        # Phân loại độ nặng của từ
+        strong_kws = ["identita", "carta", "codice", "fiscale", "patente"]
+        matches = [k for k in self.VALID_KWS if k in text]
+        has_text_kws = len(matches) > 0
+        has_strong = any(k in strong_kws for k in matches)
         has_mrz = "<<" in text or "< <" in text
         
         # --- MẶT SAU (BACK) ---
@@ -322,12 +340,23 @@ class ClassifierEngine:
         # --- MẶT TRƯỚC (FRONT) ---
         if has_text_kws:
             if features.get('faces', 0) > 0:
-                _log(f"[OCR-DEBUG] ✓ Evaluate: Text hợp lệ + Có Khuôn mặt → MẶT TRƯỚC (FRONT)")
-            else:
-                _log(f"[OCR-DEBUG] ✓ Evaluate: Text hợp lệ (ko thấy mặt) → MẶT TRƯỚC (FRONT)")
-            return True, "FRONT"
+                _log(f"[OCR-DEBUG] ✓ Evaluate: Có Khuôn mặt + Có Text → MẶT TRƯỚC (FRONT)")
+                return True, "FRONT"
             
-        _log(f"[OCR-DEBUG] ✗ Evaluate: Không đủ keyword hoặc đặc trưng → loại")
+            if "pdf" in mime.lower():
+                if has_strong or len(matches) >= 3:
+                     _log(f"[OCR-DEBUG] ✓ Evaluate: PDF vượt vòng kiểm duyệt cao -> MẶT TRƯỚC (FRONT)")
+                     return True, "FRONT"
+                else:
+                     _log(f"[OCR-DEBUG] ✗ Evaluate: PDF bị thiếu strong match (chỉ có {matches}) -> Bị loại!")
+                     return False, ""
+            
+            # Nếu là ảnh trơn ko Face, ko phải PDF (Ảnh mờ, thẻ căn cước chụp lại màn hình...)
+            if has_strong or len(matches) >= 2:
+                _log(f"[OCR-DEBUG] ✓ Evaluate: Ảnh trơn có cấu trúc câu chuẩn -> MẶT TRƯỚC (FRONT)")
+                return True, "FRONT"
+            
+        _log(f"[OCR-DEBUG] ✗ Evaluate: Không đủ keyword hoặc face → loại")
         return False, ""
 
     def _move(self, path: Path, dest_dir: Path):
