@@ -20,9 +20,11 @@ try:
     import cv2
     import numpy as np
     from PIL import Image
+    from uniface import RetinaFace
     AI_ENABLED = True
 except ImportError as e:
     AI_ENABLED = False
+    _import_error = str(e)
     _import_error = str(e)
 
 try:
@@ -64,9 +66,6 @@ class ClassifierEngine:
         # Invalid keywords (contracts, property, etc)
         self.INVALID_KWS = ["contratto", "catastale", "fattura", "preventivo", "bolletta"]
 
-        self.face_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml' if AI_ENABLED else ""
-        self.face_cascade = None
-
     def start(self, user_state=None):
         _log(f"[OCR-DEBUG] classifier.start() được gọi — AI_ENABLED={AI_ENABLED}")
         if not AI_ENABLED:
@@ -93,7 +92,7 @@ class ClassifierEngine:
         _log("[OCR-DEBUG] Khởi tạo AI (EasyOCR + Face Cascades)...")
         t0 = _time.time()
         self.reader = easyocr.Reader(['it', 'en'], gpu=False)
-        self.face_cascade = cv2.CascadeClassifier(self.face_cascade_path)
+        self.face_detector = RetinaFace()
         elapsed = _time.time() - t0
         _log(f"[OCR-DEBUG] ✓ Khởi tạo xong AI — mất {elapsed:.1f}s")
         _log("[OCR-DEBUG] ═══════════════════════════════════════════")
@@ -211,6 +210,15 @@ class ClassifierEngine:
             docs_dir.mkdir(parents=True, exist_ok=True)
             self._move_with_name(path, docs_dir, new_name)
             
+            # LƯU ẢNH FACE (NẾU CÓ)
+            if prefix == "FRONT" and features.get("face_crop") is not None:
+                face_name = f"FACE_{path.name}"
+                # Nếu ảnh gốc là pdf thì lưu face dưới dạng jpg
+                if face_name.lower().endswith(".pdf"):
+                    face_name = face_name[:-4] + ".jpg"
+                face_path = docs_dir / face_name
+                cv2.imwrite(str(face_path), features["face_crop"])
+            
             # Update UI state
             user_state.inc("documents_found")
             user_state.update_account(email_addr, last_file=f"✅ {prefix}: {path.name}")
@@ -266,11 +274,23 @@ class ClassifierEngine:
                 if barcodes:
                     result["has_barcode"] = True
                 
-            # Face check (using grayscale for faster/better detection)
-            if self.face_cascade:
-                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-                faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
-                result["faces"] = len(faces)
+            # Face check (Uniface RetinaFace - High Precision)
+            if self.face_detector:
+                faces = self.face_detector.detect(img)
+                if faces:
+                    result["faces"] = len(faces)
+                    # Lấy khuôn mặt đầu tiên
+                    fb = faces[0].bbox
+                    try:
+                        x1, y1, x2, y2 = int(fb[0]), int(fb[1]), int(fb[2]), int(fb[3])
+                        # Bắt lỗi padding nếu box lọt ngoài ảnh
+                        h, w = img.shape[:2]
+                        x1, y1 = max(0, x1), max(0, y1)
+                        x2, y2 = min(w, x2), min(h, y2)
+                        if x2 > x1 and y2 > y1:
+                            result["face_crop"] = img[y1:y2, x1:x2]
+                    except Exception as e:
+                        pass
         except Exception as e:
             _log(f"[OCR-DEBUG] ✗ Lỗi trích xuất tính năng face/barcode: {e}")
         return result
@@ -345,16 +365,16 @@ class ClassifierEngine:
             
             if "pdf" in mime.lower():
                 if has_strong or len(matches) >= 3:
-                     _log(f"[OCR-DEBUG] ✓ Evaluate: PDF vượt vòng kiểm duyệt cao -> MẶT TRƯỚC (FRONT)")
-                     return True, "FRONT"
+                     _log(f"[OCR-DEBUG] ✓ Evaluate: PDF vượt vòng kiểm duyệt cao -> TÀI LIỆU (DOC)")
+                     return True, "DOC"
                 else:
                      _log(f"[OCR-DEBUG] ✗ Evaluate: PDF bị thiếu strong match (chỉ có {matches}) -> Bị loại!")
                      return False, ""
             
             # Nếu là ảnh trơn ko Face, ko phải PDF (Ảnh mờ, thẻ căn cước chụp lại màn hình...)
             if has_strong or len(matches) >= 2:
-                _log(f"[OCR-DEBUG] ✓ Evaluate: Ảnh trơn có cấu trúc câu chuẩn -> MẶT TRƯỚC (FRONT)")
-                return True, "FRONT"
+                _log(f"[OCR-DEBUG] ✓ Evaluate: Ảnh trơn có cấu trúc câu chuẩn -> TÀI LIỆU (DOC)")
+                return True, "DOC"
             
         _log(f"[OCR-DEBUG] ✗ Evaluate: Không đủ keyword hoặc face → loại")
         return False, ""

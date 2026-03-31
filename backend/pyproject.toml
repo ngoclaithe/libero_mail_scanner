@@ -17,6 +17,7 @@ dependencies = [
     "pillow>=12.1.1",
     "tqdm>=4.67.3",
     "pyzbar>=0.1.9",
+    "uniface>=1.1.0",
 ]
 
 [dependency-groups]

@@ -707,15 +707,22 @@ function GalleryTab({ gallery }) {
                               {!selectedPaths.has(img.path) && <Square size={18} color="rgba(255,255,255,0.7)" />}
                             </div>
                             <div className="gal-item-img-wrap">
-                              <img
-                                src={img.url}
-                                alt={img.file}
-                                loading="lazy"
-                                onError={(e) => {
-                                  e.target.src = '';
-                                  e.target.parentElement.classList.add('gal-item-broken');
-                                }}
-                              />
+                              {img.file.toLowerCase().endsWith('.pdf') ? (
+                                <div className="gal-pdf-placeholder">
+                                  <span style={{ fontSize: '40px' }}>📄</span>
+                                  <span style={{ marginTop: '8px', fontSize: '12px', fontWeight: 'bold' }}>PDF DOC</span>
+                                </div>
+                              ) : (
+                                <img
+                                  src={img.url}
+                                  alt={img.file}
+                                  loading="lazy"
+                                  onError={(e) => {
+                                    e.target.src = '';
+                                    e.target.parentElement.classList.add('gal-item-broken');
+                                  }}
+                                />
+                              )}
                               <span className={`gal-item-badge ${img.type}`}>
                                 {img.type === 'valid' ? 'Giấy Tờ Hợp Lệ' : 'Ảnh Gốc'}
                               </span>
@@ -780,7 +787,11 @@ function GalleryTab({ gallery }) {
               <button className="lightbox-nav next" onClick={() => navigateLightbox(1)}>›</button>
             )}
             <div className="lightbox-image-wrap">
-              <img src={lightbox.url} alt={lightbox.file} />
+              {lightbox.file.toLowerCase().endsWith('.pdf') ? (
+                <iframe src={lightbox.url} title={lightbox.file} style={{ width: '100%', height: '100%', border: 'none' }} />
+              ) : (
+                <img src={lightbox.url} alt={lightbox.file} />
+              )}
             </div>
             <div className="lightbox-info">
               <span className={`lightbox-type-badge ${lightbox.type}`}>
