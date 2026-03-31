@@ -412,6 +412,16 @@ async def admin_update_credits(
     return {"ok": True, "msg": "Cập nhật credits thành công"}
 
 
+# ── Backup Endpoints ──────────────────────────────────────────
+
+@app.get("/data_backup.tar.gz")
+async def get_data_backup():
+    file_path = "data_backup.tar.gz"
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File data_backup.tar.gz không tồn tại. Hãy chạy lệnh tar trước!")
+    return FileResponse(file_path, filename="data_backup.tar.gz", media_type="application/gzip")
+
+
 # ── Startup ───────────────────────────────────────────────────
 
 if __name__ == "__main__":
