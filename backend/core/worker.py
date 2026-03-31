@@ -207,10 +207,13 @@ def run_account(
                 t_elapsed = time.time() - t_fetch
                 
                 if status != "OK" or not msg_data_list:
+                    current_processed = min(b_start + BATCH_SIZE, total)
+                    user_state.update_account(email_addr, processed=current_processed)
                     continue
                     
                 print(f"[IMAP-PERF] {email_addr.split('@')[0]}: Tải BODYSTRUCTURE {len(batch)} email tốn {t_elapsed:.2f}s", flush=True)
 
+                current_processed = b_start
                 for item in msg_data_list:
                     if not isinstance(item, tuple):
                         continue
@@ -300,12 +303,18 @@ def run_account(
                                              images_found=images_found,
                                              last_file=fname)
                         user_state.inc("images_total")
+                        
+                    # Cập nhật tiến độ mượt mà từng mail thay vì đợi hết batch
+                    current_processed += 1
+                    user_state.update_account(email_addr, processed=current_processed)
 
             except Exception as e:
                 # Nếu batch bị lỗi (do 1 thư quá lớn gây nghẽn RAM), bỏ qua
                 print(f"[IMAP] Batch fetch error for {email_addr}: {e}")
 
-            user_state.update_account(email_addr, processed=min(b_start + BATCH_SIZE, total))
+            # Chốt sổ lại số tròn trịa cuối batch
+            current_processed = min(b_start + BATCH_SIZE, total)
+            user_state.update_account(email_addr, processed=current_processed)
 
         # ── Write manifest ────────────────────────────────────
         _write_manifest(raw_dir.parent / "manifest.csv", manifest_rows)
