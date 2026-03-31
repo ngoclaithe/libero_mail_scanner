@@ -407,25 +407,29 @@ class ClassifierEngine:
             'dichiarazione dei redditi', 'quadro a', 'quadro b', 'sostituto d\'imposta',
             'contratto', 'fattura', 'bolletta', 'preventivo', 'ricevuta',
             'estratto conto', 'estratto.conto', 'conto corrente', 'bonifico',
-            'ordinante', 'scontrino', 'assicurazione', 'catastale',
-            # INPS / ISEE
+            'ordinante', 'scontrino', 'assicurazione', 'catastale', 'catasto', 'planimetria',
+            'ministero delle finanze', 'totale euro',
+            # INPS / ISEE / Thue (khong phai CCCD)
             'attestazione isee', 'isee ordinario', 'dichiarazione sostitutiva',
             'nucleo familiare', 'inps', 'prestazioni agevolate',
-            # Y te / benh vien
+            'dati previdenziali', 'uniemens', 'percipiente', 'sostituto d\'imposta',
+            # Y te / benh vien / toa thuoc
             'pronto soccorso', 'ospedale', 'laboratorio di', 'esito test',
             'antigenico', 'tampone', 'referto', 'paziente', 'medico radiologo',
             'radiolog', 'emoglobina', 'piastrine', 'glicemia', 'colesterolo',
             'ematologia', 'biochimica clinica', 'data esame', 'data risultato',
-            'sistema ts', 'codice fiscale assistito',
+            'sistema ts', 'codice fiscale assistito', 'ricetta elettronica',
+            'servizio sanitario nazionale', 'promemoria per l\'assistito', 'casa di cura',
             # Attestati / chung chi
             'attestato', 'corso di formazione', 'ha partecipato', 'si attesta che',
             # Bat dong san / hop dong (co ma vach I25 nhung KHONG phai CCCD)
             'compravendita', 'promette di vendere', 'promette di acquistare',
             'preliminare di', 'contratto preliminare', 'rogito', 'notarile',
             'immobile sito', 'particella', 'mappale',
-            # Vien thong / SIM (co ma vach nhung khong phai CCCD)
+            # Vien thong / Giao nhan / SIM (co ma vach nhung khong phai CCCD)
             'nuova sim', 'tim card', 'vodafone', 'iliad', 'wind tre', 'fastweb',
-            'piano tariffario', 'offerta tariffaria',
+            'piano tariffario', 'offerta tariffaria', 'dhl', 'waybill', 'express worldwide',
+            'spedizione', 'corriere', 'lettera di vettura',
             # Khac
             'azienda sanitaria', 'asp di', 'certificato medico',
             'dgc', 'covid-19', 'vaccinazione', 'dose',
