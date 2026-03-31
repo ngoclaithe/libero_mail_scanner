@@ -183,14 +183,21 @@ class ClassifierEngine:
         _log(msg_ft)
         user_state.add_ai_log(msg_ft)
 
-        # Layer 3: OCR / PDF Text Scanning
-        msg = f" ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text..."
-        _log(msg)
-        user_state.add_ai_log(msg)
-        t_ocr = _time.time()
-        text = self._layer3_extract_text(path, mime)
-        ocr_elapsed = _time.time() - t_ocr
-        _log(f"[OCR-DEBUG] Layer 3 — OCR xong trong {ocr_elapsed:.2f}s, trích được {len(text)} ký tự")
+        # ── FAST PATH: Image có barcode 1D → bỏ qua OCR (tiết kiệm 2-4s CPU)
+        # Chỉ áp dụng cho IMAGE, không áp dụng cho PDF (PDF cần text để BLACKLIST lọc)
+        if features.get('has_barcode') and 'image' in mime:
+            _log(f"[OCR-DEBUG] ⚡ FAST PATH: Barcode 1D trên image → bỏ qua OCR, classify BACK trực tiếp")
+            text = ""  # Không cần text, barcode đã đủ điểm
+            ocr_elapsed = 0.0
+        else:
+            # Layer 3: OCR / PDF Text Scanning
+            msg = f" ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text..."
+            _log(msg)
+            user_state.add_ai_log(msg)
+            t_ocr = _time.time()
+            text = self._layer3_extract_text(path, mime)
+            ocr_elapsed = _time.time() - t_ocr
+            _log(f"[OCR-DEBUG] Layer 3 — OCR xong trong {ocr_elapsed:.2f}s, trích được {len(text)} ký tự")
         
         is_valid, side = self._evaluate_text_and_features(text, features, mime)
         if is_valid:
@@ -334,7 +341,7 @@ class ClassifierEngine:
                 img_ocr = cv2.imread(str(path))
                 if img_ocr is not None:
                     h, w = img_ocr.shape[:2]
-                    max_dim = 1200
+                    max_dim = 800  # Giảm từ 1200→800 để RapidOCR nhanh hơn ~2x
                     if max(h, w) > max_dim:
                         scale = max_dim / max(h, w)
                         img_ocr = cv2.resize(img_ocr, (int(w*scale), int(h*scale)))
@@ -387,8 +394,16 @@ class ClassifierEngine:
             'sistema ts', 'codice fiscale assistito',
             # Attestati / chung chi
             'attestato', 'corso di formazione', 'ha partecipato', 'si attesta che',
+            # Bat dong san / hop dong (co ma vach I25 nhung KHONG phai CCCD)
+            'compravendita', 'promette di vendere', 'promette di acquistare',
+            'preliminare di', 'contratto preliminare', 'rogito', 'notarile',
+            'immobile sito', 'particella', 'mappale',
+            # Vien thong / SIM (co ma vach nhung khong phai CCCD)
+            'nuova sim', 'tim card', 'vodafone', 'iliad', 'wind tre', 'fastweb',
+            'piano tariffario', 'offerta tariffaria',
             # Khac
-            'azienda sanitaria', 'regione calabria', 'asp di',
+            'azienda sanitaria', 'asp di', 'certificato medico',
+            'dgc', 'covid-19', 'vaccinazione', 'dose',
         ]
         for bl in BLACKLIST:
             if bl in txt:
