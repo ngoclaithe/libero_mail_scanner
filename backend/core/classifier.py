@@ -28,6 +28,7 @@ _import_error = None
 try:
     from rapidocr_onnxruntime import RapidOCR
     import fitz  # Thay thế pdfplumber bằng PyMuPDF
+    fitz.TOOLS.mupdf_display_errors(False)  # Tắt log lỗi syntax rác của PDF
     import cv2
     import numpy as np
     from PIL import Image
