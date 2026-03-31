@@ -145,9 +145,16 @@ class ClassifierEngine:
         _log("[OCR-DEBUG] Khởi tạo AI (RapidONNX + RetinaFace)... Sẽ load độc lập trên mỗi worker process.")
         _log("[OCR-DEBUG] ═══════════════════════════════════════════")
         
-        # Siêu Server: RTX 3090 Ti (24GB VRAM) + 30 Cores Threadripper. 
-        # Đẩy lên 15 workers chạy GPU song song để càng quét 1300 file/giây!
-        num_workers = 15 
+        # Bắt buộc Cuda phải 'spawn' tiến trình ảo, nghiêm cấm 'fork' của Linux
+        try:
+            mp.set_start_method('spawn', force=True)
+        except Exception:
+            pass
+
+        # FIX TỐI THƯỢNG: Driver RTX 3090 (Version 590+) có tính năng tự động Shared-RAM Swapping khi VRAM chạm 24GB.
+        # 15 workers x 2GB/worker (Model OCR+Face+CudaContext) = 30GB > 24GB VRAM => Gây tràn cúp nguồn VRAM -> Chuyển sang cày RAM thường qua cổng PCIe cực rùa.
+        # Hạ xuống 4-6 workers là mức lý tưởng để vắt kiệt 100% CUDA GPU mà không tràn VRAM.
+        num_workers = 5 
         for i in range(num_workers):
             p = mp.Process(target=self._run, daemon=True, name=f"AI_Classifier_Proc_{i}")
             p.start()
