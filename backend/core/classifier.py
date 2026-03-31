@@ -107,24 +107,23 @@ class ClassifierEngine:
     @property
     def reader(self):
         if not hasattr(self._local, "reader"):
-            # Limit thread usage inside ONNX so multiple workers can run nicely
             import os
             os.environ["OMP_NUM_THREADS"] = "1"
-            # ÉP BUỘC RAPIDOCR PHẢI SỬ DỤNG CUDA thay vì mặc định CPU trong YAML
-            self._local.reader = RapidOCR(
-                det_use_cuda=True,
-                cls_use_cuda=True,
-                rec_use_cuda=True
-            )
+            from core.config import USE_CUDA
+            if USE_CUDA:
+                self._local.reader = RapidOCR(det_use_cuda=True, cls_use_cuda=True, rec_use_cuda=True)
+            else:
+                self._local.reader = RapidOCR(det_use_cuda=False, cls_use_cuda=False, rec_use_cuda=False)
         return self._local.reader
 
     @property
     def face_detector(self):
         if not hasattr(self._local, "face_detector"):
-            # ÉP BUỘC RetinaFace SỬ DỤNG CUDA
-            self._local.face_detector = RetinaFace(
-                providers=['CUDAExecutionProvider', 'CPUExecutionProvider']
-            )
+            from core.config import USE_CUDA
+            if USE_CUDA:
+                self._local.face_detector = RetinaFace(providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+            else:
+                self._local.face_detector = RetinaFace(providers=['CPUExecutionProvider'])
         return self._local.face_detector
 
     def start(self, user_state=None):
@@ -153,13 +152,13 @@ class ClassifierEngine:
         _log("[OCR-DEBUG] Khởi tạo AI (RapidONNX + RetinaFace)... Sẽ load độc lập trên mỗi worker process.")
         _log("[OCR-DEBUG] ═══════════════════════════════════════════")
         
-        num_workers = 5 
-        for i in range(num_workers):
+        from core.config import AI_WORKERS
+        for i in range(AI_WORKERS):
             p = mp.Process(target=self._run, daemon=True, name=f"AI_Classifier_Proc_{i}")
             p.start()
             self._processes.append(p)
             
-        _log(f"[OCR-DEBUG] ✓ {num_workers} AI Classifier processes đã start!")
+        _log(f"[OCR-DEBUG] ✓ {AI_WORKERS} AI Classifier processes đã start!")
 
     def stop(self):
         self._stop.set()
