@@ -50,7 +50,10 @@ class ClassifierEngine:
         self.reader = None
         
         # Valid keywords for Italian IDs (Carta d'Identita, Codice Fiscale, Patente)
-        self.VALID_KWS = ["identita", "carta", "codice", "fiscale", "patente", "repubblica italiana", "ministero"]
+        self.VALID_KWS = [
+            "identita", "carta", "codice", "fiscale", "patente", "repubblica italiana", "ministero",
+            "cognome", "nome", "nato", "nata", "cittadinanza", "residenza", "statura", "scadenza"
+        ]
         # Invalid keywords (contracts, property, etc)
         self.INVALID_KWS = ["contratto", "catastale", "fattura", "preventivo", "bolletta"]
 
