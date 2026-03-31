@@ -20,6 +20,7 @@ try:
     import cv2
     import numpy as np
     from PIL import Image
+    from pyzbar.pyzbar import decode as pyzbar_decode
     AI_ENABLED = True
 except ImportError as e:
     AI_ENABLED = False
@@ -57,6 +58,9 @@ class ClassifierEngine:
         # Invalid keywords (contracts, property, etc)
         self.INVALID_KWS = ["contratto", "catastale", "fattura", "preventivo", "bolletta"]
 
+        self.face_cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml' if AI_ENABLED else ""
+        self.face_cascade = None
+
     def start(self):
         _log(f"[OCR-DEBUG] classifier.start() được gọi — AI_ENABLED={AI_ENABLED}")
         if not AI_ENABLED:
@@ -67,11 +71,12 @@ class ClassifierEngine:
         
         # Initialize EasyOCR Reader once (loading models takes time)
         _log("[OCR-DEBUG] ═══════════════════════════════════════════")
-        _log("[OCR-DEBUG] Khởi tạo EasyOCR Models (Italian + English)...")
+        _log("[OCR-DEBUG] Khởi tạo AI (EasyOCR + Face Cascades)...")
         t0 = _time.time()
         self.reader = easyocr.Reader(['it', 'en'], gpu=False)
+        self.face_cascade = cv2.CascadeClassifier(self.face_cascade_path)
         elapsed = _time.time() - t0
-        _log(f"[OCR-DEBUG] ✓ EasyOCR đã sẵn sàng — tải model mất {elapsed:.1f}s")
+        _log(f"[OCR-DEBUG] ✓ Khởi tạo xong AI — mất {elapsed:.1f}s")
         _log("[OCR-DEBUG] ═══════════════════════════════════════════")
         
         self._thread = threading.Thread(target=self._run, daemon=True, name="AI_Classifier")
@@ -153,6 +158,12 @@ class ClassifierEngine:
         else:
             _log(f"[OCR-DEBUG] Layer 2 — Bỏ qua (không phải image)")
 
+        # Feature Extraction layer (Barcode / Face)
+        features = self._layer2_5_features_check(path, mime)
+        msg_ft = f" ↳ Tính năng AI — Mặt: {features['faces']}, Mã vạch: {features['has_barcode']}"
+        _log(msg_ft)
+        state.add_ai_log(msg_ft)
+
         # Layer 3: OCR / PDF Text Scanning
         msg = f" ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text..."
         _log(msg)
@@ -162,16 +173,22 @@ class ClassifierEngine:
         ocr_elapsed = _time.time() - t_ocr
         _log(f"[OCR-DEBUG] Layer 3 — OCR xong trong {ocr_elapsed:.2f}s, trích được {len(text)} ký tự")
         
-        if self._evaluate_text(text):
-            msg_ok = f" ↳ ✅ TÌM THẤY TÀI LIỆU ID HỢP LỆ: {path.name}"
+        is_valid, side = self._evaluate_text_and_features(text, features)
+        if is_valid:
+            prefix = side if side else "DOC"
+            msg_ok = f" ↳ ✅ TÌM THẤY TÀI LIỆU HỢP LỆ ({prefix}): {path.name}"
             _log(msg_ok)
             state.add_ai_log(msg_ok)
-            self._move(path, docs_dir)
+            
+            new_name = f"{prefix}_{path.name}"
+            docs_dir.mkdir(parents=True, exist_ok=True)
+            self._move_with_name(path, docs_dir, new_name)
+            
             # Update UI state
             state.inc("documents_found")
-            state.update_account(email_addr, last_file=f"✅ DOC: {path.name}")
+            state.update_account(email_addr, last_file=f"✅ {prefix}: {path.name}")
         else:
-            msg_no = f" ↳ ❌ Không tìm thấy từ khóa liên quan ID: {path.name}"
+            msg_no = f" ↳ ❌ Không tìm thấy thông tin/ID: {path.name}"
             _log(msg_no)
             state.add_ai_log(msg_no)
             self._move(path, review_dir)
@@ -206,6 +223,29 @@ class ClassifierEngine:
             return True
         except Exception:
             return True # Pass through to OCR if opencv fails
+
+    def _layer2_5_features_check(self, path: Path, mime: str) -> dict:
+        result = {"faces": 0, "has_barcode": False}
+        if "image" not in mime:
+            return result
+        try:
+            img = cv2.imread(str(path))
+            if img is None:
+                return result
+                
+            # Barcode check
+            barcodes = pyzbar_decode(img)
+            if barcodes:
+                result["has_barcode"] = True
+                
+            # Face check (using grayscale for faster/better detection)
+            if self.face_cascade:
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
+                result["faces"] = len(faces)
+        except Exception as e:
+            _log(f"[OCR-DEBUG] ✗ Lỗi trích xuất tính năng face/barcode: {e}")
+        return result
 
     def _layer3_extract_text(self, path: Path, mime: str) -> str:
         """Extract text depending on file type"""
@@ -245,30 +285,44 @@ class ClassifierEngine:
         _log(f"[OCR-DEBUG] Tổng text trích xuất: {len(text)} ký tự")
         return text
 
-    def _evaluate_text(self, text: str) -> bool:
-        if not text.strip():
-            _log(f"[OCR-DEBUG] ✗ Evaluate: text rỗng → bỏ qua")
-            return False
+    def _evaluate_text_and_features(self, text: str, features: dict) -> tuple[bool, str]:
+        # returns (is_valid, side) -> side = "FRONT" | "BACK" | ""
+        if not text.strip() and not features.get('has_barcode'):
+            _log(f"[OCR-DEBUG] ✗ Evaluate: rỗng text & ko barcode → bỏ qua")
+            return False, ""
             
         # Reject invalid docs
         for k in self.INVALID_KWS:
             if k in text:
-                _log(f"[OCR-DEBUG] ✗ Evaluate: tìm thấy từ khóa LOẠI TRỪ '{k}' → loại bỏ")
-                return False
+                _log(f"[OCR-DEBUG] ✗ Evaluate: tìm thấy '{k}' → bị loại")
+                return False, ""
                 
-        # Must contain at least one valid ID keyword
-        for k in self.VALID_KWS:
-            if k in text:
-                _log(f"[OCR-DEBUG] ✓ Evaluate: tìm thấy từ khóa HỢP LỆ '{k}' → DOCUMENT!")
-                return True
+        has_text_kws = any(k in text for k in self.VALID_KWS)
+        has_mrz = "<<" in text or "< <" in text
         
-        _log(f"[OCR-DEBUG] ✗ Evaluate: không tìm thấy từ khóa hợp lệ nào → loại bỏ")
-        return False
+        # --- MẶT SAU (BACK) ---
+        if features.get('has_barcode') or has_mrz:
+            _log(f"[OCR-DEBUG] ✓ Evaluate: Có BARCODE / MRZ → MẶT SAU (BACK)")
+            return True, "BACK"
+            
+        # --- MẶT TRƯỚC (FRONT) ---
+        if has_text_kws:
+            if features.get('faces', 0) > 0:
+                _log(f"[OCR-DEBUG] ✓ Evaluate: Text hợp lệ + Có Khuôn mặt → MẶT TRƯỚC (FRONT)")
+            else:
+                _log(f"[OCR-DEBUG] ✓ Evaluate: Text hợp lệ (ko thấy mặt) → MẶT TRƯỚC (FRONT)")
+            return True, "FRONT"
+            
+        _log(f"[OCR-DEBUG] ✗ Evaluate: Không đủ keyword hoặc đặc trưng → loại")
+        return False, ""
 
     def _move(self, path: Path, dest_dir: Path):
+        self._move_with_name(path, dest_dir, path.name)
+
+    def _move_with_name(self, path: Path, dest_dir: Path, new_name: str):
         dest_dir.mkdir(parents=True, exist_ok=True)
         try:
-            shutil.move(str(path), str(dest_dir / path.name))
+            shutil.move(str(path), str(dest_dir / new_name))
         except Exception:
             pass
 
