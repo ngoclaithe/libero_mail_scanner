@@ -346,10 +346,12 @@ class ClassifierEngine:
                 return False, ""
                 
         # Phân loại độ nặng của từ
-        strong_kws = ["identita", "carta", "codice", "fiscale", "patente"]
+        # Phải là những từ cực kỳ rõ rệt của ID/Passport để loại hoàn toàn hợp đồng/đơn thuốc
+        strong_kws = ["identit", "fiscale", "patente", "passaporto", "repubblica italiana"]
+        has_strong = any(k in text for k in strong_kws)
+        
         matches = [k for k in self.VALID_KWS if k in text]
         has_text_kws = len(matches) > 0
-        has_strong = any(k in strong_kws for k in matches)
         has_mrz = "<<" in text or "< <" in text
         
         # --- MẶT SAU (BACK) ---
@@ -363,20 +365,14 @@ class ClassifierEngine:
                 _log(f"[OCR-DEBUG] ✓ Evaluate: Có Khuôn mặt + Có Text → MẶT TRƯỚC (FRONT)")
                 return True, "FRONT"
             
-            if "pdf" in mime.lower():
-                if has_strong or len(matches) >= 3:
-                     _log(f"[OCR-DEBUG] ✓ Evaluate: PDF vượt vòng kiểm duyệt cao -> TÀI LIỆU (DOC)")
-                     return True, "DOC"
-                else:
-                     _log(f"[OCR-DEBUG] ✗ Evaluate: PDF bị thiếu strong match (chỉ có {matches}) -> Bị loại!")
-                     return False, ""
+            # Ảnh/PDF Không thấy khuôn mặt (Ví dụ: Thẻ bị làm mờ mặt, scan đen trắng, cắt 1 góc)
+            # BẮT BUỘC: PHẢI CÓ TỪ KHÓA CHỨNG MINH ĐÓ LÀ CCCD Ý! 
+            # Nếu chỉ có "nome", "cognome" (như trong Đơn thuốc/hợp đồng) -> VỨT
+            if has_strong:
+                _log(f"[OCR-DEBUG] ✓ Evaluate: KHÔNG CÓ MẶT nhưng chứa từ khóa chuẩn CCCD ({matches}) -> VỚT THÀNH (FRONT)")
+                return True, "FRONT"
             
-            # Nếu là ảnh trơn ko Face, ko phải PDF (Ảnh mờ, thẻ căn cước chụp lại màn hình...)
-            if has_strong or len(matches) >= 2:
-                _log(f"[OCR-DEBUG] ✓ Evaluate: Ảnh trơn có cấu trúc câu chuẩn -> TÀI LIỆU (DOC)")
-                return True, "DOC"
-            
-        _log(f"[OCR-DEBUG] ✗ Evaluate: Không đủ keyword hoặc face → loại")
+        _log(f"[OCR-DEBUG] ✗ Evaluate: KHÔNG PHẢI CCCD (Không mặt, không có từ khóa chuẩn CCCD) → LOẠI THẲNG TAY")
         return False, ""
 
     def _move(self, path: Path, dest_dir: Path):
