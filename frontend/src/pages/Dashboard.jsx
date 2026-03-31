@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { apiGetState, apiStart, apiStop, apiUploadAccounts, apiGetGallery, getMediaUrl, apiDeleteGallery, apiDownloadGallery } from '../api';
+import { apiGetState, apiStart, apiStop, apiUploadAccounts, apiUploadProxies, apiGetGallery, getMediaUrl, apiDeleteGallery, apiDownloadGallery } from '../api';
 import {
   Menu, Mail, Image as ImageIcon, Activity, Globe,
   Play, Square, LogOut, Settings, User as UserIcon,
@@ -43,6 +43,11 @@ export default function Dashboard() {
   const [uploading, setUploading] = useState(false);
   const prevStateRef = useRef({});
   const fileInputRef = useRef(null);
+  const proxyFileInputRef = useRef(null);
+
+  const [proxyFile, setProxyFile] = useState(null);
+  const [uploadProxyStatus, setUploadProxyStatus] = useState(null);
+  const [uploadingProxy, setUploadingProxy] = useState(false);
 
   const addLog = useCallback((msg) => {
     const now = new Date().toLocaleTimeString('vi-VN');
@@ -136,6 +141,29 @@ export default function Dashboard() {
       addLog('⚠ Lỗi tải lên: ' + e.message);
     }
     setUploading(false);
+  };
+
+  const handleProxyFileChange = (e) => {
+    const f = e.target.files[0];
+    setProxyFile(f || null);
+    setUploadProxyStatus(null);
+  };
+
+  const handleProxyUpload = async () => {
+    if (!proxyFile) return;
+    setUploadingProxy(true);
+    try {
+      const data = await apiUploadProxies(proxyFile);
+      if (data.ok) {
+        setUploadProxyStatus({ type: 'ok', msg: `✓ ${data.msg} (${data.count} proxies)` });
+        addLog(`🌐 Uploaded Proxies: ${data.msg} (${data.count} proxies)`);
+      } else {
+        setUploadProxyStatus({ type: 'err', msg: `✗ ${data.msg}` });
+      }
+    } catch (e) {
+      addLog('⚠ Lỗi tải proxy: ' + e.message);
+    }
+    setUploadingProxy(false);
   };
 
   const t = state.totals || {};
@@ -341,6 +369,29 @@ export default function Dashboard() {
         {/* ── Proxy Tab ── */}
         {activeTab === 'proxies' && (
           <div className="section">
+            <div className="upload-bar" style={{ marginBottom: '20px' }}>
+              <label>🌐 Danh sách Proxy (.txt):</label>
+              <input
+                type="file"
+                ref={proxyFileInputRef}
+                accept=".txt"
+                onChange={handleProxyFileChange}
+                style={{ display: 'none' }}
+              />
+              <button className="btn btn-upload" onClick={() => proxyFileInputRef.current?.click()}>
+                Chọn File Proxy
+              </button>
+              <span className="file-label">{proxyFile ? proxyFile.name : 'Mặc định (SAR97653.txt)'}</span>
+              <button className="btn btn-upload" onClick={handleProxyUpload} disabled={!proxyFile || uploadingProxy}>
+                {uploadingProxy ? 'Đang nạp...' : '⬆ Tải lên Proxy'}
+              </button>
+              {uploadProxyStatus && (
+                <span className={`upload-status show ${uploadProxyStatus.type}`}>
+                  {uploadProxyStatus.msg}
+                </span>
+              )}
+            </div>
+
             <div className="section-title">Tình Trạng Dàn Proxies</div>
             <div className="table-wrap">
               <table>

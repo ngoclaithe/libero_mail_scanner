@@ -29,6 +29,7 @@ class Scanner:
         self._thread:   Optional[threading.Thread] = None
         self.pool:      Optional[ProxyPool]        = None
         self._acc_file: str = ACCOUNTS_FILE
+        self._proxy_file: str = PROXY_FILE
         self.state      = AppState()   # Per-user state
         self._reload_pool()
 
@@ -36,6 +37,10 @@ class Scanner:
 
     def set_accounts_file(self, path: str):
         self._acc_file = path
+
+    def set_proxy_file(self, path: str):
+        self._proxy_file = path
+        self._reload_pool()
 
     def accounts_preview(self) -> list:
         return [a["email"] for a in self._load_accounts()]
@@ -116,7 +121,7 @@ class Scanner:
 
     def _reload_pool(self):
         try:
-            self.pool = ProxyPool(PROXY_FILE)
+            self.pool = ProxyPool(self._proxy_file)
         except Exception as e:
             print(f"[WARN] Proxy file error: {e}")
             self.pool = None

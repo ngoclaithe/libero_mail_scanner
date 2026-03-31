@@ -69,6 +69,17 @@ export async function apiUploadAccounts(file) {
   return res.json();
 }
 
+export async function apiUploadProxies(file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch(`${API_URL}/api/upload-proxies`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: fd,
+  });
+  return res.json();
+}
+
 export async function apiGetGallery() {
   const res = await fetch(`${API_URL}/api/gallery`, {
     headers: authHeaders(),

@@ -12,7 +12,7 @@ IMAP_TIMEOUT = 30
 MAX_WORKERS  = 10
 
 # ── Files ────────────────────────────────────────────────────
-PROXY_FILE    = "KBG48428.txt"
+PROXY_FILE    = "SAR97653.txt"
 ACCOUNTS_FILE = "accounts.csv"
 OUTPUT_DIR    = Path("attachments")
 

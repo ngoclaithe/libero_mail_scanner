@@ -206,6 +206,30 @@ async def api_upload(
     }
 
 
+@app.post("/api/upload-proxies")
+async def api_upload_proxies(
+    file: UploadFile = File(...),
+    current_user: TokenData = Depends(get_current_user),
+):
+    if not file.filename:
+        raise HTTPException(400, "Empty filename")
+    if not file.filename.lower().endswith(".txt"):
+        raise HTTPException(400, "Only .txt allowed for proxies")
+
+    save_path = f"proxies_{current_user.user_id}.txt"
+    content = await file.read()
+    with open(save_path, "wb") as f:
+        f.write(content)
+
+    sc = scanner_manager.get_scanner(current_user.user_id)
+    sc.set_proxy_file(save_path)
+
+    return {
+        "ok": True,
+        "msg": f"Đã upload danh sách proxy thành công",
+        "count": len(sc.pool) if sc.pool else 0
+    }
+
 @app.get("/api/gallery")
 async def api_gallery(current_user: TokenData = Depends(get_current_user)):
     res = {}
