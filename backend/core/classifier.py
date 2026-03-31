@@ -27,7 +27,7 @@ def _log(msg: str):
 _import_error = None
 try:
     from rapidocr_onnxruntime import RapidOCR
-    import pdfplumber
+    import fitz  # Thay thế pdfplumber bằng PyMuPDF
     import cv2
     import numpy as np
     from PIL import Image
@@ -111,7 +111,7 @@ class ClassifierEngine:
         _log("[OCR-DEBUG] ═══════════════════════════════════════════")
         
         # CPU VPS có 32GB RAM => Chắc có nhiều luồng, dùng 4 workers là an toàn và đủ nhanh
-        num_workers = 4 
+        num_workers = 10 
         for i in range(num_workers):
             t = threading.Thread(target=self._run, daemon=True, name=f"AI_Classifier_{i}")
             t.start()
@@ -351,18 +351,18 @@ class ClassifierEngine:
         text = ""
         try:
             if "pdf" in mime:
-                _log(f"[OCR-DEBUG] ▶ PDFPlumber bắt đầu đọc: {path.name}")
-                with pdfplumber.open(str(path)) as pdf:
-                    _log(f"[OCR-DEBUG]   PDF có {len(pdf.pages)} trang")
-                    for i, page in enumerate(pdf.pages):
-                        if i > 2: break # Only check first 3 pages
-                        ext = page.extract_text()
+                _log(f"[OCR-DEBUG] ▶ PyMuPDF bắt đầu đọc: {path.name}")
+                with fitz.open(str(path)) as pdf:
+                    _log(f"[OCR-DEBUG]   PDF có {len(pdf)} trang")
+                    for i in range(min(3, len(pdf))): # Only check first 3 pages
+                        page = pdf[i]
+                        ext = page.get_text()
                         if ext:
                             _log(f"[OCR-DEBUG]   Trang {i+1}: trích được {len(ext)} ký tự")
                             text += ext.lower() + " "
                         else:
                             _log(f"[OCR-DEBUG]   Trang {i+1}: không có text")
-                _log(f"[OCR-DEBUG] ◀ PDFPlumber xong: {path.name}")
+                _log(f"[OCR-DEBUG] ◀ PyMuPDF xong: {path.name}")
             else:
                 # OCR Image
                 _log(f"[OCR-DEBUG] ▶ RapidOCR bắt đầu quét ảnh: {path.name} ({mime})")

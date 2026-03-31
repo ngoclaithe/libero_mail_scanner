@@ -42,6 +42,80 @@ def _safe_name(name: str) -> str:
     return re.sub(r'[^\w.\-_ ]', '_', name).strip() or "attachment"
 
 
+# ── Custom IMAP Parser ────────────────────────────────────────
+
+def _parse_imap_list(s: str) -> list:
+    stack = [[]]
+    token = ""
+    in_str = False
+    escape = False
+    i = 0
+    while i < len(s):
+        char = s[i]
+        if escape:
+            token += char
+            escape = False
+        elif char == '\\':
+            escape = True
+        elif char == '"':
+            in_str = not in_str
+        elif in_str:
+            token += char
+        elif char == '(':
+            stack.append([])
+        elif char == ')':
+            if token:
+                stack[-1].append(token)
+                token = ""
+            sub = stack.pop()
+            stack[-1].append(sub)
+        elif char == ' ':
+            if token:
+                stack[-1].append(token)
+                token = ""
+        else:
+            token += char
+        i += 1
+    if token: stack[-1].append(token)
+    return stack[0][0] if stack and stack[0] else []
+
+def _find_parts(parsed, prefix="") -> list:
+    parts = []
+    if isinstance(parsed, list) and len(parsed) > 0:
+        if isinstance(parsed[0], list): # Multipart
+            # Cấu trúc multipart chứa các sub-parts, ta đếm index (1-based)
+            subparts = [p for p in parsed if isinstance(p, list)]
+            for i, p in enumerate(subparts):
+                num = f"{prefix}.{i+1}" if prefix else str(i+1)
+                parts.extend(_find_parts(p, num))
+        elif isinstance(parsed[0], str): # Single part
+            mime1 = parsed[0].lower()
+            mime2 = parsed[1].lower() if len(parsed) > 1 and isinstance(parsed[1], str) else ""
+            mime = f"{mime1}/{mime2}"
+            num = prefix if prefix else "1"
+            parts.append((num, mime, parsed))
+    return parts
+
+def _extract_bodystructure(header_bytes: bytes) -> str:
+    """Extracts the BODYSTRUCTURE (...) substring from IMAP response."""
+    s = header_bytes.decode('utf-8', errors='ignore')
+    # Tìm index của "BODYSTRUCTURE ("
+    idx = s.find("BODYSTRUCTURE (")
+    if idx == -1: return ""
+    idx += len("BODYSTRUCTURE ")
+    
+    # Matching parenthesis
+    open_p = 0
+    for i in range(idx, len(s)):
+        if s[i] == '(': open_p += 1
+        elif s[i] == ')': open_p -= 1
+        if open_p == 0:
+            return s[idx:i+1]
+    return ""
+
+
+
+
 # ── Main worker ───────────────────────────────────────────────
 
 def run_account(
@@ -127,58 +201,90 @@ def run_account(
             batch_str = b','.join(batch)
             
             try:
-                # Lấy cả batch BATCH_SIZE thư cùng lúc (1 TCP Round-Trip thay vì BATCH_SIZE vòng lặp rời rạc)
+                # 1. Fetch BODYSTRUCTURE và thông tin Header cơ bản
                 t_fetch = time.time()
-                status, msg_data_list = mail.fetch(batch_str, "(RFC822)")
+                status, msg_data_list = mail.fetch(batch_str, "(BODYSTRUCTURE BODY.PEEK[HEADER.FIELDS (DATE TO)])")
                 t_elapsed = time.time() - t_fetch
                 
                 if status != "OK" or not msg_data_list:
                     continue
                     
-                print(f"[IMAP-PERF] {email_addr.split('@')[0]}: Tải một lúc {len(batch)} email tốn {t_elapsed:.2f}s", flush=True)
+                print(f"[IMAP-PERF] {email_addr.split('@')[0]}: Tải BODYSTRUCTURE {len(batch)} email tốn {t_elapsed:.2f}s", flush=True)
 
                 for item in msg_data_list:
-                    # IMAP fetch multiple returns tuples and strings in a flat list
                     if not isinstance(item, tuple):
                         continue
 
-                    # extract original mid from IMAP response (e.g., b'1 FETCH ...')
-                    header = item[0]
-                    mid_b = header.split(b' ', 1)[0]
+                    header_b = item[0]
+                    msg_body = item[1]
+                    
                     try:
-                        mail_no = int(mid_b)
+                        mail_no = int(header_b.split(b' ', 1)[0])
                     except ValueError:
                         mail_no = b_start + 1
 
-                    msg_body = item[1]
                     msg  = message_from_bytes(msg_body)
                     date = msg.get("Date", "")
                     to   = _decode(msg.get("To", ""))
 
+                    bs_str = _extract_bodystructure(header_b)
+                    if not bs_str:
+                        continue
+                        
+                    parsed_bs = _parse_imap_list(bs_str)
+                    parts_info = _find_parts(parsed_bs)
+                    
+                    # Lọc những phần có MIME type được phép
+                    target_parts = [p for p in parts_info if p[1] in ALLOWED_MIME]
+                    
                     att_i = 0
-                    for part in msg.walk():
-                        ct = part.get_content_type().lower()
-                        if ct not in ALLOWED_MIME:
-                            continue
-                        if part.get("Content-Disposition") is None:
+                    for part_num, mime, p_info in target_parts:
+                        # 2. Fetch CHỈ những bytes của part đính kèm (không tải toàn bộ)
+                        try:
+                            s2, pd_list = mail.fetch(str(mail_no).encode(), f"(BODY.PEEK[{part_num}])")
+                            if s2 != "OK" or not pd_list or not isinstance(pd_list[0], tuple):
+                                continue
+                                
+                            part_bytes = pd_list[0][1]
+                            
+                            # Parse sub-message payload
+                            sub_msg = message_from_bytes(b"Content-Transfer-Encoding: base64\r\n\r\n" + part_bytes)
+                            # Fallback if not base64? IMAP usually encodes base64 for images
+                            # We can force base64 decode if the body isn't parsed properly
+                            payload = sub_msg.get_payload(decode=True)
+                            if not payload:
+                                import base64
+                                # Cleanup IMAP wrapping
+                                raw_p = part_bytes.replace(b'\r', b'').replace(b'\n', b'')
+                                try:
+                                    payload = base64.b64decode(raw_p)
+                                except Exception:
+                                    continue
+                        except Exception as e:
+                            print(f"[IMAP] Lỗi tải part {part_num} của mail {mail_no}: {e}")
                             continue
 
-                        orig = _decode(part.get_filename() or "")
+                        # Extract filename from parsed BODYSTRUCTURE info if available
+                        orig = ""
+                        # p_info is ['image', 'jpeg', ['name', 'file.jpg'], ...]
+                        # Search for "name" or "filename"
+                        for i in range(len(p_info)):
+                            if isinstance(p_info[i], list) and len(p_info[i]) >= 2:
+                                if isinstance(p_info[i][0], str) and p_info[i][0].lower() in ('name', 'filename'):
+                                    orig = _decode(p_info[i][1])
+                                    break
+                                    
                         if not orig:
-                            ext  = ct.split("/")[-1].replace("jpeg", "jpg")
+                            ext  = mime.split("/")[-1].replace("jpeg", "jpg")
                             orig = f"att_{att_i}.{ext}"
                         att_i += 1
 
                         fname   = _safe_name(orig)
                         dest    = raw_dir / f"mail_{mail_no:04d}_{fname}"
-                        payload = part.get_payload(decode=True)
-                        if not payload:
-                            continue
-
+                        
                         dest.write_bytes(payload)
                         # Push to AI Queue
-                        from core.classifier import ai_queue
-                        ai_queue.put((email_addr, str(dest), ct, user_state))
+                        ai_queue.put((email_addr, str(dest), mime, user_state))
                         images_found += 1
                         manifest_rows.append({
                             "mail_no":   mail_no,
@@ -187,7 +293,7 @@ def run_account(
                             "filename":  fname,
                             "filepath":  str(dest),
                             "size":      len(payload),
-                            "mime":      ct,
+                            "mime":      mime,
                         })
 
                         user_state.update_account(email_addr,
