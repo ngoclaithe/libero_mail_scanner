@@ -411,11 +411,6 @@ class ClassifierEngine:
 
         _log(f"[OCR-DEBUG] x Khong du dieu kien: BACK={score_back}<{THRESHOLD_BACK}, FRONT={score_front}<{THRESHOLD_FRONT}")
         return False, ""
-            _log(f"[OCR-DEBUG] ✓ K\u1ebft qu\u1ea3: FRONT (score={score_front})")
-            return True, "FRONT"
-
-        _log(f"[OCR-DEBUG] ✗ Kh\u00f4ng \u0111\u1ee7 \u0111i\u1ec1u ki\u1ec7n: BACK={score_back}<{THRESHOLD_BACK}, FRONT={score_front}<{THRESHOLD_FRONT}")
-        return False, ""
 
     def _move(self, path: Path, dest_dir: Path):
         self._move_with_name(path, dest_dir, path.name)
