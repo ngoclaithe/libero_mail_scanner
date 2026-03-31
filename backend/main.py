@@ -414,7 +414,7 @@ async def admin_update_credits(
 
 # ── Backup Endpoints ──────────────────────────────────────────
 
-@app.get("/data_backup.tar.gz")
+@app.get("/api/data_backup.tar.gz")
 async def get_data_backup():
     file_path = "data_backup.tar.gz"
     if not os.path.exists(file_path):
