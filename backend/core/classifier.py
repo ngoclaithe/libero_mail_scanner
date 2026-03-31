@@ -57,14 +57,7 @@ class ClassifierEngine:
         self._stop = threading.Event()
         self._thread = None
         self.reader = None
-        
-        # Valid keywords for Italian IDs (Carta d'Identita, Codice Fiscale, Patente)
-        self.VALID_KWS = [
-            "identita", "carta", "codice", "fiscale", "patente", "repubblica italiana", "ministero",
-            "cognome", "nome", "nato", "nata", "cittadinanza", "residenza", "statura", "scadenza"
-        ]
-        # Invalid keywords (contracts, property, etc)
-        self.INVALID_KWS = ["contratto", "catastale", "fattura", "preventivo", "bolletta"]
+        # Keywords moved into scoring engine (_evaluate_text_and_features)
 
     def start(self, user_state=None):
         _log(f"[OCR-DEBUG] classifier.start() được gọi — AI_ENABLED={AI_ENABLED}")
@@ -210,14 +203,26 @@ class ClassifierEngine:
             docs_dir.mkdir(parents=True, exist_ok=True)
             self._move_with_name(path, docs_dir, new_name)
             
-            # LƯU ẢNH FACE (NẾU CÓ)
+            # LƯU ẢNH FACE VÀO SUBFOLDER RIÊNG (không hiển thị trong gallery chính)
             if prefix == "FRONT" and features.get("face_crop") is not None:
                 face_name = f"FACE_{path.name}"
                 # Nếu ảnh gốc là pdf thì lưu face dưới dạng jpg
                 if face_name.lower().endswith(".pdf"):
                     face_name = face_name[:-4] + ".jpg"
-                face_path = docs_dir / face_name
+                # Lưu vào faces/ subfolder thay vì thẳng vào documents/
+                faces_dir = docs_dir / "faces"
+                faces_dir.mkdir(parents=True, exist_ok=True)
+                face_path = faces_dir / face_name
                 cv2.imwrite(str(face_path), features["face_crop"])
+                _log(f"[OCR-DEBUG] ✓ Face crop lưu vào: faces/{face_name}")
+                # Xóa file FACE_ cũ trong docs_dir nếu có (dọn dẹp từ phiên bản cũ)
+                old_face_path = docs_dir / face_name
+                if old_face_path.exists():
+                    try:
+                        old_face_path.unlink()
+                        _log(f"[OCR-DEBUG] Đã xóa face cũ lạc chỗ: {old_face_path.name}")
+                    except Exception:
+                        pass
             
             # Update UI state
             user_state.inc("documents_found")
@@ -268,11 +273,19 @@ class ClassifierEngine:
             if img is None:
                 return result
                 
-            # Barcode check
+            # Barcode check — chỉ nhận mã vạch LINEAR (1D dạng dài)
+            # Loại bỏ QR code (vuông), Aztec, DataMatrix vì không phải CCCD/giấy tờ
             if ZBAR_ENABLED:
                 barcodes = pyzbar_decode(img)
-                if barcodes:
+                linear_barcodes = [
+                    b for b in barcodes
+                    if b.type not in ('QRCODE', 'AZTEC', 'DATAMATRIX')
+                ]
+                if linear_barcodes:
                     result["has_barcode"] = True
+                    _log(f"[OCR-DEBUG] Tìm thấy {len(linear_barcodes)} mã vạch 1D: {[b.type for b in linear_barcodes]}")
+                elif barcodes:
+                    _log(f"[OCR-DEBUG] Bỏ qua {len(barcodes)} mã 2D (QR/Aztec/DataMatrix): {[b.type for b in barcodes]}")
                 
             # Face check (Uniface RetinaFace - High Precision)
             if self.face_detector:
@@ -350,41 +363,146 @@ class ClassifierEngine:
         return text
 
     def _evaluate_text_and_features(self, text: str, features: dict, mime: str) -> tuple[bool, str]:
-        # returns (is_valid, side) -> side = "FRONT" | "BACK" | ""
-        if not text.strip() and not features.get('has_barcode') and features.get('faces', 0) == 0:
-            _log(f"[OCR-DEBUG] ✗ Evaluate: Ảnh trống rỗng (Ko chữ, ko mặt, ko mã vạch) → BỎ QUA")
-            return False, ""
-            
-        # Reject invalid docs
-        for k in self.INVALID_KWS:
-            if k in text:
-                _log(f"[OCR-DEBUG] ✗ Evaluate: tìm thấy '{k}' → bị loại")
-                return False, ""
-                
-        # Phân loại độ nặng của từ
-        # Phải là những từ cực kỳ rõ rệt của ID/Passport để loại hoàn toàn hợp đồng/đơn thuốc
-        strong_kws = ["identit", "fiscale", "patente", "passaporto", "repubblica italiana"]
-        has_strong = any(k in text for k in strong_kws)
-        
-        matches = [k for k in self.VALID_KWS if k in text]
-        has_text_kws = len(matches) > 0
-        has_mrz = "<<" in text or "< <" in text
-        
-        # --- MẶT SAU (BACK) ---
-        if features.get('has_barcode') or has_mrz:
-            _log(f"[OCR-DEBUG] ✓ Evaluate: Có BARCODE / MRZ → MẶT SAU (BACK)")
-            return True, "BACK"
-            
-        # --- MẶT CÓ CHỨA KHUÔN MẶT (FRONT) ---
+        """
+        Scoring engine cho CIE (Carta d'Identit\u00e0 Elettronica) Italia.
+        Score >= THRESHOLD_BACK  -> BACK
+        Score >= THRESHOLD_FRONT -> FRONT
+        """
+        import re
+
+        # ── Scoring thresholds ──────────────────────────────
+        THRESHOLD_BACK  = 2   # d\u1ec5 h\u01a1n: MRZ + barcode l\u00e0 d\u1ea5u hi\u1ec7u r\u00f5 r\u00e0ng
+        THRESHOLD_FRONT = 3   # ch\u1eb7t h\u01a1n: c\u1ea7n \u00edt nh\u1ea5t 3 d\u1ea5u hi\u1ec7u
+
+        score_back  = 0
+        score_front = 0
+        reasons_back  = []
+        reasons_front = []
+
+        # ─────────────────────────────────────────────────────
+        # BACK SIGNALS
+        # ─────────────────────────────────────────────────────
+
+        # [+3] MRZ pattern: 3 d\u00f2ng v\u1edbi << v\u00e0 ITA — d\u1ea5u hi\u1ec7u c\u1ef1c k\u1ef3 ch\u1eafc
+        # M\u1eabu: C<ITACA29739HP2<<<<<<<<\n650303...\nFORTIGUERRA<<ANNA<MARIA
+        mrz_line = bool(re.search(r'[A-Z0-9<]{20,}', text.upper()))
+        has_ita   = bool(re.search(r'\bita\b|c<ita|itaca', text, re.IGNORECASE))
+        has_mrz_arrows = '<<' in text or '< <' in text
+        if has_mrz_arrows and has_ita:
+            score_back += 3
+            reasons_back.append('MRZ+ITA (+3)')
+        elif has_mrz_arrows and mrz_line:
+            score_back += 2
+            reasons_back.append('MRZ_line (+2)')
+
+        # [+3] Linear barcode 1D (\u0111\u00e3 filter QR \u1edf layer tr\u01b0\u1edbc)
+        if features.get('has_barcode'):
+            score_back += 3
+            reasons_back.append('barcode_1D (+3)')
+
+        # [+2] Codice Fiscale pattern: 6 ch\u1eef + 2 s\u1ed1 + 1 ch\u1eef + 2 s\u1ed1 + 1 ch\u1eef + 3 k/s + 1 s\u1ed1
+        # M\u1eabu: FRTNMR65C43I130K  ho\u1eb7c  BLLCST86D42I628D
+        codice_fiscale = re.search(
+            r'\b[A-Z]{6}\d{2}[A-EHLMPRST]\d{2}[A-Z]\d{3}[A-Z]\b',
+            text.upper()
+        )
+        if codice_fiscale:
+            score_back += 2
+            reasons_back.append(f'codice_fiscale:{codice_fiscale.group()} (+2)')
+
+        # [+1] Keywords m\u1eb7t sau
+        back_kws = ['codice fiscale', 'fiscal code', 'indirizzo di residenza',
+                    'residence', 'madre', 'padre', 'father', 'mother',
+                    'estremi atto', 'cognome e nome']
+        for kw in back_kws:
+            if kw in text:
+                score_back += 1
+                reasons_back.append(f'kw:{kw} (+1)')
+                break  # ch\u1ec9 +1 cho c\u1ea3 nh\u00f3m
+
+        # [+1] Nh\u1eef th\u1ea3 m\u1eb7t sau c\u00f3 face nh\u1ecf (\u1ea3nh \u0111\u1ecbnh danh ng\u01b0\u1eddi d\u00f9ng \u1edf g\u00f3c tr\u00ean ph\u1ea3i)
         if features.get('faces', 0) > 0:
-            if has_text_kws or has_strong:
-                _log(f"[OCR-DEBUG] ✓ Evaluate: TÌM THẤY KHUÔN MẶT + Text Hợp lệ → MẶT TRƯỚC (FRONT)")
-                return True, "FRONT"
-            else:
-                _log(f"[OCR-DEBUG] ✗ Evaluate: CÓ KHUÔN MẶT nhưng hoàn toàn KHÔNG đọc được chữ nào hợp lệ (OCR rỗng/sai) → LOẠI THẲNG TAY")
+            score_back += 1
+            reasons_back.append('face_on_back (+1)')
+
+        # ─────────────────────────────────────────────────────
+        # FRONT SIGNALS
+        # ─────────────────────────────────────────────────────
+
+        # [+4] Header r\u1ea5t m\u1ea1nh: "REPUBBLICA ITALIANA" ho\u1eb7c "MINISTERO DELL'INTERNO"
+        rep_italiana = bool(re.search(r'repubblica\s+italiana|ministero\s+dell', text, re.IGNORECASE))
+        if rep_italiana:
+            score_front += 4
+            reasons_front.append('REPUBLICA_ITALIANA (+4)')
+
+        # [+3] "CARTA DI IDENTIT\u00c0" ho\u1eb7c "IDENTITY CARD"
+        carta_identita = bool(re.search(r'carta\s+di\s+identit|identity\s+card', text, re.IGNORECASE))
+        if carta_identita:
+            score_front += 3
+            reasons_front.append('CARTA_IDENTITA (+3)')
+
+        # [+2] S\u1ed1 th\u1ebb CIE: m\u1eabu 2 ch\u1eef + 5 s\u1ed1 + 2 ch\u1eef  (vd: CA29739HP, CA24621FY)
+        cie_number = re.search(r'\b[A-Z]{2}\d{5}[A-Z]{2}\b', text.upper())
+        if cie_number:
+            score_front += 2
+            reasons_front.append(f'CIE_number:{cie_number.group()} (+2)')
+
+        # [+2] Khu\u00f4n m\u1eb7t r\u00f5 r\u00e0ng (m\u1eb7t tr\u01b0\u1edbc c\u00f3 face l\u1edbn)
+        if features.get('faces', 0) > 0:
+            score_front += 2
+            reasons_front.append('face_detected (+2)')
+
+        # [+1] Keywords m\u1eb7t tr\u01b0\u1edbc
+        front_kws_hits = 0
+        front_kws = ['cognome', 'surname', 'nome', 'name', 'emissione', 'issuing',
+                     'scadenza', 'expiry', 'sesso', 'sex', 'statura', 'height',
+                     'cittadinanza', 'nationality', 'luogo', 'nascita', 'birth',
+                     'firma', 'holder', 'identita', 'identit']
+        for kw in front_kws:
+            if kw in text:
+                front_kws_hits += 1
+        if front_kws_hits >= 3:
+            score_front += 2
+            reasons_front.append(f'{front_kws_hits} front_kws (+2)')
+        elif front_kws_hits >= 1:
+            score_front += 1
+            reasons_front.append(f'{front_kws_hits} front_kws (+1)')
+
+        # [+1] Patente (b\u1eb1ng l\u00e1i xe) c\u0169ng l\u00e0 gi\u1ea5y t\u1edd h\u1ee3p l\u1ec7
+        if 'patente' in text:
+            score_front += 2
+            reasons_front.append('patente (+2)')
+
+        # ─────────────────────────────────────────────────────
+        # BLACKLIST — lo\u1ea1i ngay n\u1ebfu c\u00f3
+        # ─────────────────────────────────────────────────────
+        BLACKLIST = ['contratto', 'fattura', 'bolletta', 'preventivo',
+                     'catastale', 'ricevuta', 'scontrino', 'assicurazione']
+        for bl in BLACKLIST:
+            if bl in text:
+                _log(f"[OCR-DEBUG] ✗ BLACKLIST: '{bl}' → lo\u1ea1i")
                 return False, ""
-            
-        _log(f"[OCR-DEBUG] ✗ Evaluate: KHÔNG CÓ KHUÔN MẶT VÀ KHÔNG PHẢI MẶT SAU → LOẠI THẲNG TAY")
+
+        # ─────────────────────────────────────────────────────
+        # QUY\u1ebeT \u0110\u1ecaNH
+        # ─────────────────────────────────────────────────────
+        _log(f"[OCR-DEBUG] Score BACK={score_back} {reasons_back}")
+        _log(f"[OCR-DEBUG] Score FRONT={score_front} {reasons_front}")
+
+        # BACK \u01b0u ti\u00ean h\u01a1n (score cao h\u01a1n ho\u1eb7c barcode/MRZ r\u00f5 r\u00e0ng)
+        if score_back >= THRESHOLD_BACK and score_back >= score_front:
+            _log(f"[OCR-DEBUG] ✓ K\u1ebft qu\u1ea3: BACK (score={score_back})")
+            return True, "BACK"
+
+        if score_front >= THRESHOLD_FRONT:
+            # FRONT b\u1eaft bu\u1ed9c ph\u1ea3i c\u00f3 face (tr\u00e1nh nh\u1eadn nh\u00e0m document v\u0103n b\u1ea3n)
+            if features.get('faces', 0) == 0:
+                _log(f"[OCR-DEBUG] ✗ FRONT score={score_front} \u0111\u1ee7 nh\u01b0ng KH\u00d4NG C\u00d3 FACE → lo\u1ea1i")
+                return False, ""
+            _log(f"[OCR-DEBUG] ✓ K\u1ebft qu\u1ea3: FRONT (score={score_front})")
+            return True, "FRONT"
+
+        _log(f"[OCR-DEBUG] ✗ Kh\u00f4ng \u0111\u1ee7 \u0111i\u1ec1u ki\u1ec7n: BACK={score_back}<{THRESHOLD_BACK}, FRONT={score_front}<{THRESHOLD_FRONT}")
         return False, ""
 
     def _move(self, path: Path, dest_dir: Path):
