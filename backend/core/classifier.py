@@ -183,11 +183,12 @@ class ClassifierEngine:
         _log(msg_ft)
         user_state.add_ai_log(msg_ft)
 
-        # ── FAST PATH: Image có barcode 1D → bỏ qua OCR (tiết kiệm 2-4s CPU)
-        # Chỉ áp dụng cho IMAGE, không áp dụng cho PDF (PDF cần text để BLACKLIST lọc)
+        # ── FAST PATH: Image có barcode 1D
+        # Vẫn cần chạy OCR thu nhỏ (600px) để check BLACKLIST
+        # -- hợp đồng BĐS, Marca da Bollo cũng có barcode 1D nhưng phải bị loại
         if features.get('has_barcode') and 'image' in mime:
-            _log(f"[OCR-DEBUG] ⚡ FAST PATH: Barcode 1D trên image → bỏ qua OCR, classify BACK trực tiếp")
-            text = ""  # Không cần text, barcode đã đủ điểm
+            _log(f"[OCR-DEBUG] ⚡ FAST PATH barcode: chạy OCR nhẹ 600px để check BLACKLIST...")
+            text = self._layer3_extract_text_light(path, mime)
             ocr_elapsed = 0.0
         else:
             # Layer 3: OCR / PDF Text Scanning
@@ -198,6 +199,7 @@ class ClassifierEngine:
             text = self._layer3_extract_text(path, mime)
             ocr_elapsed = _time.time() - t_ocr
             _log(f"[OCR-DEBUG] Layer 3 — OCR xong trong {ocr_elapsed:.2f}s, trích được {len(text)} ký tự")
+
         
         is_valid, side = self._evaluate_text_and_features(text, features, mime)
         if is_valid:
@@ -369,8 +371,31 @@ class ClassifierEngine:
         _log(f"[OCR-DEBUG] Tổng text trích xuất: {len(text)} ký tự")
         return text
 
+    def _layer3_extract_text_light(self, path: Path, mime: str) -> str:
+        """OCR nhẹ 600px — chỉ dùng để check BLACKLIST khi image đã có barcode.
+        Nhanh hơn ~2x so với full OCR 800px. Không cần độ chính xác cao."""
+        text = ""
+        try:
+            img = cv2.imread(str(path))
+            if img is None:
+                return ""
+            h, w = img.shape[:2]
+            max_dim = 600
+            if max(h, w) > max_dim:
+                scale = max_dim / max(h, w)
+                img = cv2.resize(img, (int(w*scale), int(h*scale)))
+            ocr_results, _ = self.reader(img)
+            if ocr_results:
+                txt_list = [item[1] for item in ocr_results if item[2] > 0.3]
+                text = " ".join(txt_list).lower()
+                _log(f"[OCR-DEBUG]   Light OCR: {len(txt_list)} đoạn, {len(text)} ký tự")
+        except Exception as e:
+            _log(f"[OCR-DEBUG] ✗ Light OCR FAILED: {e}")
+        return text
+
     def _evaluate_text_and_features(self, text: str, features: dict, mime: str) -> tuple[bool, str]:
         import re
+
 
         txt = text.lower()
 
