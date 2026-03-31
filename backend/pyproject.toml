@@ -11,6 +11,7 @@ dependencies = [
     "python-jose[cryptography]>=3.4.0",
     "pysocks>=1.7.1",
     "rapidocr-onnxruntime>=1.4.4",
+    "onnxruntime-gpu>=1.19.0",
     "numpy>=2.4.3",
     "opencv-python-headless>=4.11.0",
     "pymupdf>=1.24.0",

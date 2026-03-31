@@ -145,8 +145,8 @@ class ClassifierEngine:
         _log("[OCR-DEBUG] Khởi tạo AI (RapidONNX + RetinaFace)... Sẽ load độc lập trên mỗi worker process.")
         _log("[OCR-DEBUG] ═══════════════════════════════════════════")
         
-        # CPU VPS có 32GB RAM => Chạy đa tiến trình (10 Cores), mỗi tiến trình tự load model.
-        num_workers = 10 
+        # Server GPU: VRAM cần được dùng tối ưu, tránh OOM. Chỉ nên dùng 3 - 4 workers song song.
+        num_workers = 3 
         for i in range(num_workers):
             p = mp.Process(target=self._run, daemon=True, name=f"AI_Classifier_Proc_{i}")
             p.start()
