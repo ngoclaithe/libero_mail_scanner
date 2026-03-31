@@ -15,7 +15,7 @@ def _log(msg: str):
 
 _import_error = None
 try:
-    import easyocr
+    from rapidocr_onnxruntime import RapidOCR
     import pdfplumber
     import cv2
     import numpy as np
@@ -89,9 +89,9 @@ class ClassifierEngine:
         
         # Initialize EasyOCR Reader once (loading models takes time)
         _log("[OCR-DEBUG] ═══════════════════════════════════════════")
-        _log("[OCR-DEBUG] Khởi tạo AI (EasyOCR + Face Cascades)...")
+        _log("[OCR-DEBUG] Khởi tạo AI (RapidONNX + RetinaFace)...")
         t0 = _time.time()
-        self.reader = easyocr.Reader(['it', 'en'], gpu=False)
+        self.reader = RapidOCR()
         self.face_detector = RetinaFace()
         elapsed = _time.time() - t0
         _log(f"[OCR-DEBUG] ✓ Khởi tạo xong AI — mất {elapsed:.1f}s")
@@ -314,19 +314,35 @@ class ClassifierEngine:
                 _log(f"[OCR-DEBUG] ◀ PDFPlumber xong: {path.name}")
             else:
                 # OCR Image
-                _log(f"[OCR-DEBUG] ▶ EasyOCR bắt đầu quét ảnh: {path.name} ({mime})")
+                _log(f"[OCR-DEBUG] ▶ RapidOCR bắt đầu quét ảnh: {path.name} ({mime})")
                 _log(f"[OCR-DEBUG]   File size: {path.stat().st_size / 1024:.1f} KB")
+                
+                # Nén ảnh để OCR chạy lướt (Phương án 1 + 2)
+                img_ocr = cv2.imread(str(path))
+                if img_ocr is not None:
+                    h, w = img_ocr.shape[:2]
+                    max_dim = 1200
+                    if max(h, w) > max_dim:
+                        scale = max_dim / max(h, w)
+                        img_ocr = cv2.resize(img_ocr, (int(w*scale), int(h*scale)))
+                        _log(f"[OCR-DEBUG]   Đã ép nhỏ ảnh từ {w}x{h} xuống {img_ocr.shape[1]}x{img_ocr.shape[0]} để tối ưu tốc độ")
+                
                 t_read = _time.time()
-                results = self.reader.readtext(str(path), detail=0)
+                # rapidocr trả về: (results, elapse)
+                # results là list: [ [box, text, score], ... ]
+                ocr_results, _ = self.reader(img_ocr)
                 read_elapsed = _time.time() - t_read
-                text = " ".join(results).lower()
-                _log(f"[OCR-DEBUG]   ⏱ EasyOCR readtext mất: {read_elapsed:.2f}s")
-                _log(f"[OCR-DEBUG]   EasyOCR trả về {len(results)} đoạn text")
-                if results:
+                
+                if ocr_results:
+                    txt_list = [item[1] for item in ocr_results if item[2] > 0.3] # Lọc chữ có tự tin > 30%
+                    text = " ".join(txt_list).lower()
+                    _log(f"[OCR-DEBUG]   ⏱ RapidOCR mất: {read_elapsed:.2f}s")
+                    _log(f"[OCR-DEBUG]   Trả về {len(txt_list)} đoạn text")
                     _log(f"[OCR-DEBUG]   Nội dung OCR: {text[:300]}{'...' if len(text) > 300 else ''}")
                 else:
-                    _log(f"[OCR-DEBUG]   ⚠ EasyOCR không đọc được text nào!")
-                _log(f"[OCR-DEBUG] ◀ EasyOCR xong: {path.name}")
+                    _log(f"[OCR-DEBUG]   ⏱ RapidOCR mất: {read_elapsed:.2f}s")
+                    _log(f"[OCR-DEBUG]   ⚠ RapidOCR không đọc được text nào!")
+                _log(f"[OCR-DEBUG] ◀ RapidOCR xong: {path.name}")
         except Exception as e:
             _log(f"[OCR-DEBUG] ✗ Text extraction FAILED trên {path.name}: {e}")
         
@@ -335,8 +351,8 @@ class ClassifierEngine:
 
     def _evaluate_text_and_features(self, text: str, features: dict, mime: str) -> tuple[bool, str]:
         # returns (is_valid, side) -> side = "FRONT" | "BACK" | ""
-        if not text.strip() and not features.get('has_barcode'):
-            _log(f"[OCR-DEBUG] ✗ Evaluate: rỗng text & ko barcode → bỏ qua")
+        if not text.strip() and not features.get('has_barcode') and features.get('faces', 0) == 0:
+            _log(f"[OCR-DEBUG] ✗ Evaluate: Ảnh trống rỗng (Ko chữ, ko mặt, ko mã vạch) → BỎ QUA")
             return False, ""
             
         # Reject invalid docs
@@ -365,7 +381,7 @@ class ClassifierEngine:
                 _log(f"[OCR-DEBUG] ✓ Evaluate: TÌM THẤY KHUÔN MẶT + Text Hợp lệ → MẶT TRƯỚC (FRONT)")
                 return True, "FRONT"
             else:
-                _log(f"[OCR-DEBUG] ✗ Evaluate: Có Khuôn mặt nhưng text OCR quá ít/sai → LOẠI THẲNG TAY")
+                _log(f"[OCR-DEBUG] ✗ Evaluate: CÓ KHUÔN MẶT nhưng hoàn toàn KHÔNG đọc được chữ nào hợp lệ (OCR rỗng/sai) → LOẠI THẲNG TAY")
                 return False, ""
             
         _log(f"[OCR-DEBUG] ✗ Evaluate: KHÔNG CÓ KHUÔN MẶT VÀ KHÔNG PHẢI MẶT SAU → LOẠI THẲNG TAY")
