@@ -4,6 +4,16 @@ Replaces the previous Flask monolith.
 """
 
 import os
+import sys
+
+# Giới hạn số lượng thread cho ONNX / OpenMP / BLAS
+# Tránh tình trạng 1 thư viện chiếm 100% CPU trên VPS nhiều core
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
 from pathlib import Path
 
 from dotenv import load_dotenv

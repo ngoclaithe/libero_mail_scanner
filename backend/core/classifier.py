@@ -4,9 +4,11 @@ import time as _time
 import shutil
 import queue
 import threading
+import cv2
 from pathlib import Path
 from email.message import Message
 
+cv2.setNumThreads(1)
 
 def _log(msg: str):
     """Print with immediate flush — required for PM2/non-TTY environments."""
@@ -55,9 +57,23 @@ class ClassifierEngine:
 
     def __init__(self):
         self._stop = threading.Event()
-        self._thread = None
-        self.reader = None
-        # Keywords moved into scoring engine (_evaluate_text_and_features)
+        self._threads = []
+        self._local = threading.local()
+
+    @property
+    def reader(self):
+        if not hasattr(self._local, "reader"):
+            # Limit thread usage inside ONNX so multiple workers can run nicely
+            import os
+            os.environ["OMP_NUM_THREADS"] = "1"
+            self._local.reader = RapidOCR()
+        return self._local.reader
+
+    @property
+    def face_detector(self):
+        if not hasattr(self._local, "face_detector"):
+            self._local.face_detector = RetinaFace()
+        return self._local.face_detector
 
     def start(self, user_state=None):
         _log(f"[OCR-DEBUG] classifier.start() được gọi — AI_ENABLED={AI_ENABLED}")
@@ -74,32 +90,34 @@ class ClassifierEngine:
             if user_state:
                 user_state.add_ai_log(msg_warn)
             
-        if self._thread and self._thread.is_alive():
-            _log("[OCR-DEBUG] AI Classifier thread vẫn đang chạy, bỏ qua bước khởi tạo lại model.")
+        if self._threads and any(t.is_alive() for t in self._threads):
+            _log("[OCR-DEBUG] AI Classifier threads vẫn đang chạy, bỏ qua bước khởi tạo lại model.")
             return
 
         self._stop.clear()
+        self._threads.clear()
         
-        # Initialize EasyOCR Reader once (loading models takes time)
         _log("[OCR-DEBUG] ═══════════════════════════════════════════")
-        _log("[OCR-DEBUG] Khởi tạo AI (RapidONNX + RetinaFace)...")
-        t0 = _time.time()
-        self.reader = RapidOCR()
-        self.face_detector = RetinaFace()
-        elapsed = _time.time() - t0
-        _log(f"[OCR-DEBUG] ✓ Khởi tạo xong AI — mất {elapsed:.1f}s")
+        _log("[OCR-DEBUG] Khởi tạo AI (RapidONNX + RetinaFace)... Sẽ load độc lập trên mỗi worker thread.")
         _log("[OCR-DEBUG] ═══════════════════════════════════════════")
         
-        self._thread = threading.Thread(target=self._run, daemon=True, name="AI_Classifier")
-        self._thread.start()
-        _log("[OCR-DEBUG] ✓ AI Classifier thread đã start!")
+        # CPU VPS có 32GB RAM => Chắc có nhiều luồng, dùng 4 workers là an toàn và đủ nhanh
+        num_workers = 4 
+        for i in range(num_workers):
+            t = threading.Thread(target=self._run, daemon=True, name=f"AI_Classifier_{i}")
+            t.start()
+            self._threads.append(t)
+            
+        _log(f"[OCR-DEBUG] ✓ {num_workers} AI Classifier threads đã start!")
 
     def stop(self):
         self._stop.set()
-        # Wake up the queue thread if it's blocking
-        ai_queue.put(None) 
-        if self._thread:
-            self._thread.join(timeout=3)
+        # Wake up the queue threads if they are blocking
+        for _ in self._threads:
+            ai_queue.put(None) 
+        for t in self._threads:
+            if t.is_alive():
+                t.join(timeout=3)
 
     def _run(self):
         _log("[OCR-DEBUG] AI Classifier thread đang chạy, chờ jobs...")
