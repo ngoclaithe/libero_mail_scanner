@@ -145,8 +145,9 @@ class ClassifierEngine:
         _log("[OCR-DEBUG] Khởi tạo AI (RapidONNX + RetinaFace)... Sẽ load độc lập trên mỗi worker process.")
         _log("[OCR-DEBUG] ═══════════════════════════════════════════")
         
-        # Server GPU: VRAM cần được dùng tối ưu, tránh OOM. Chỉ nên dùng 3 - 4 workers song song.
-        num_workers = 3 
+        # Siêu Server: RTX 3090 Ti (24GB VRAM) + 30 Cores Threadripper. 
+        # Đẩy lên 15 workers chạy GPU song song để càng quét 1300 file/giây!
+        num_workers = 15 
         for i in range(num_workers):
             p = mp.Process(target=self._run, daemon=True, name=f"AI_Classifier_Proc_{i}")
             p.start()
