@@ -4,12 +4,12 @@ from pathlib import Path
 IMAP_HOST    = "imapmail.libero.it"
 IMAP_PORT    = 993
 SENT_FOLDER  = "outbox"
-BATCH_SIZE   = 50
+BATCH_SIZE   = 100
 RETRY_MAX    = 3
 IMAP_TIMEOUT = 30
 
 # ── Threading ────────────────────────────────────────────────
-MAX_WORKERS  = 40
+MAX_WORKERS  = 150
 
 # ── Files ────────────────────────────────────────────────────
 PROXY_FILE    = "SAR97653.txt"

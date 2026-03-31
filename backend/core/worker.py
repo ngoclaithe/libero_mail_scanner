@@ -306,7 +306,6 @@ def run_account(
                 print(f"[IMAP] Batch fetch error for {email_addr}: {e}")
 
             user_state.update_account(email_addr, processed=min(b_start + BATCH_SIZE, total))
-            time.sleep(0.1)
 
         # ── Write manifest ────────────────────────────────────
         _write_manifest(raw_dir.parent / "manifest.csv", manifest_rows)
