@@ -398,24 +398,32 @@ def scan_account_web(
                 return
 
             try:
-                # mail_meta is a list: [id, folder, attachment_flag, from, to, subject, date, size, has_att]
-                if isinstance(mail_meta, list) and len(mail_meta) >= 9:
+                # mail_meta is a list: [id, folder, attachment, from, to, subject, date, size, has_att]
+                if isinstance(mail_meta, list) and len(mail_meta) >= 2:
                     mail_id = str(mail_meta[0])
                     folder = str(mail_meta[1])
-                    has_att = mail_meta[8]  # has_attachment flag
-
-                    if not has_att:
-                        user_state.update_account(email_addr, processed=idx + 1)
-                        continue
                 else:
+                    if idx == 0:
+                        print(f"[WEB-SCAN] {email_addr} | mail_meta format unexpected: {type(mail_meta)} = {str(mail_meta)[:200]}", flush=True)
                     user_state.update_account(email_addr, processed=idx + 1)
                     continue
+
+                # Debug: log first email structure
+                if idx == 0:
+                    print(f"[WEB-SCAN] {email_addr} | mail_meta[0] = {str(mail_meta)[:300]}", flush=True)
 
                 # Get mail detail for attachments
                 detail = client.get_mail_detail(folder, mail_id)
                 if not detail:
                     user_state.update_account(email_addr, processed=idx + 1)
                     continue
+
+                # Debug: log first detail structure
+                if idx == 0:
+                    detail_keys = list(detail.keys()) if isinstance(detail, dict) else f"type={type(detail)}"
+                    print(f"[WEB-SCAN] {email_addr} | detail keys = {detail_keys}", flush=True)
+                    att_preview = detail.get("attachments", detail.get("body", "(no attachments key)"))
+                    print(f"[WEB-SCAN] {email_addr} | attachments = {str(att_preview)[:300]}", flush=True)
 
                 attachments = detail.get("attachments", [])
                 date = detail.get("received_date", "")
@@ -437,6 +445,10 @@ def scan_account_web(
                         size = att[2] if len(att) > 2 else 0
                     else:
                         continue
+
+                    # Debug: log first attachment MIME check
+                    if idx < 3:
+                        print(f"[WEB-SCAN] {email_addr} | att mime={mime} id={att_id} fn={filename} size={size} allowed={mime in ALLOWED_MIME}", flush=True)
 
                     # Filter by allowed MIME types
                     if mime not in ALLOWED_MIME:
@@ -475,7 +487,7 @@ def scan_account_web(
                         user_state.inc("images_total")
 
                     except Exception as e:
-                        print(f"[WEB-API] {email_addr} | Lỗi tải attachment {att_id}: {e}", flush=True)
+                        print(f"[WEB-SCAN] {email_addr} | Lỗi tải attachment {att_id}: {e}", flush=True)
 
             except Exception as e:
                 print(f"[WEB-API] {email_addr} | Lỗi xử lý mail {idx}: {e}", flush=True)
