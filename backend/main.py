@@ -177,8 +177,8 @@ async def api_upload(
     if not file.filename.lower().endswith((".csv", ".txt")):
         raise HTTPException(400, "Only .csv or .txt")
 
-    # ── Save per-user accounts file ──
-    save_path = f"accounts_{current_user.user_id}.csv"
+    # ── Save shared accounts file ──
+    save_path = f"accounts_{SHARED_SCANNER_ID}.csv"
     content = await file.read()
     with open(save_path, "wb") as f:
         f.write(content)
@@ -266,7 +266,7 @@ async def api_save_accounts(
     db.close()
 
     # Save to file
-    save_path = f"accounts_{current_user.user_id}.csv"
+    save_path = f"accounts_{SHARED_SCANNER_ID}.csv"
     with open(save_path, "w", encoding="utf-8") as f:
         for acc in req.accounts:
             f.write(f"{acc.email}:{acc.password}\n")
@@ -291,7 +291,7 @@ async def api_upload_proxies(
     if not file.filename.lower().endswith(".txt"):
         raise HTTPException(400, "Only .txt allowed for proxies")
 
-    save_path = f"proxies_{current_user.user_id}.txt"
+    save_path = f"proxies_{SHARED_SCANNER_ID}.txt"
     content = await file.read()
     with open(save_path, "wb") as f:
         f.write(content)
@@ -351,7 +351,7 @@ async def api_save_proxies(
     if count == 0:
         raise HTTPException(400, "Danh sách rỗng")
 
-    save_path = f"proxies_{current_user.user_id}.txt"
+    save_path = f"proxies_{SHARED_SCANNER_ID}.txt"
     with open(save_path, "w", encoding="utf-8") as f:
         for p in req.proxies:
             f.write(f"{p.host}:{p.port}:{p.username}:{p.password}\n")
