@@ -37,6 +37,7 @@ export default function Dashboard() {
   const [state, setState] = useState({ status: 'idle', totals: {}, accounts: {}, proxies: [], ai_logs: [] });
   const [activeTab, setActiveTab] = useState('accounts');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [scanMode, setScanMode] = useState('adaptive');
   const [logs, setLogs] = useState([]);
   const [gallery, setGallery] = useState({});
   const [showAccountsModal, setShowAccountsModal] = useState(false);
@@ -99,8 +100,8 @@ export default function Dashboard() {
   }, []);
 
   const handleStart = async () => {
-    addLog('▶ Đang khởi động hệ thống quét...');
-    const data = await apiStart();
+    addLog(`▶ Đang khởi động hệ thống quét (Chế độ: ${scanMode === 'adaptive' ? 'Trinh Sát' : 'Quét Sâu'})...`);
+    const data = await apiStart(scanMode);
     addLog(data.msg);
   };
 
@@ -175,6 +176,16 @@ export default function Dashboard() {
               <span className={`status-dot ${state.status}`} />
               <span id="status-text">{capitalize(state.status)}</span>
             </div>
+            <select 
+               value={scanMode} 
+               onChange={(e) => setScanMode(e.target.value)}
+               disabled={running}
+               className="acc-edit-input"
+               style={{ width: "160px", height: "34px", padding: "0 10px", backgroundColor: "var(--bg1)", color: "var(--text1)", border: "1px solid var(--border)", borderRadius: "6px", outline: "none", cursor: "pointer" }}
+            >
+               <option value="adaptive">📌 Trinh Sát (Nhanh)</option>
+               <option value="deep">🔍 Quét Sâu (Full)</option>
+            </select>
             <button className="btn btn-start" onClick={handleStart} disabled={running} title="Khởi động">
               <Play size={16} /> {isSidebarOpen ? 'Khởi động' : ''}
             </button>

@@ -129,10 +129,13 @@ async def api_state(current_user: TokenData = Depends(get_current_user)):
     sc = scanner_manager.get_scanner(SHARED_SCANNER_ID)
     return sc.get_state()
 
+class StartRequest(BaseModel):
+    mode: str = "adaptive"
+
 @app.post("/api/start")
-async def api_start(current_user: TokenData = Depends(get_current_user)):
+async def api_start(req: StartRequest, current_user: TokenData = Depends(get_current_user)):
     sc = scanner_manager.get_scanner(SHARED_SCANNER_ID)
-    ok, msg = sc.start()
+    ok, msg = sc.start(mode=req.mode)
     return {"ok": ok, "msg": msg}
 
 @app.post("/api/stop")

@@ -42,10 +42,11 @@ export async function apiGetState() {
   return res.json();
 }
 
-export async function apiStart() {
+export async function apiStart(mode = 'adaptive') {
   const res = await fetch(`${API_URL}/api/start`, {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode }),
   });
   return res.json();
 }

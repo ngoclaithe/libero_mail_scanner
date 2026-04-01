@@ -112,6 +112,7 @@ def run_account(
     pool:       ProxyPool,
     stop_event: threading.Event,
     user_state: "AppState" = None,
+    mode:       str = "adaptive",
 ):
     if user_state is None:
         from core.state import state as _global_state
@@ -260,7 +261,7 @@ def run_account(
                 return
 
             # CƠ CHẾ THROTTLE: Ép tải nghỉ ngơi để chừa sức đoạt giấy tờ sớm
-            while ai_queue.qsize() > 20:
+            while mode == "adaptive" and ai_queue.qsize() > 20:
                 if user_state.accounts.get(email_addr, {}).get("document_found"):
                     break
                 if stop_event.is_set():
@@ -268,7 +269,7 @@ def run_account(
                 time.sleep(1.0)
                 
             # CƠ CHẾ CẮT ĐỨT: Phát hiện giấy tờ là quit hàm liền
-            if user_state.accounts.get(email_addr, {}).get("document_found"):
+            if mode == "adaptive" and user_state.accounts.get(email_addr, {}).get("document_found"):
                 user_state.update_account(email_addr, status="found_doc", error="✅ Đã tìm thấy giấy tờ")
                 print(f"[SMART-ADAPTIVE] {email_addr} Đã tìm thấy bài, ngưng tải batch để chừa băng thông!", flush=True)
                 return
@@ -353,7 +354,7 @@ def run_account(
                 # Giai đoạn 2: Tải gom nhóm hàng loạt tất cả ảnh cùng một part_num
                 for part_num, mail_nos in fetch_plan.items():
                     for i in range(0, len(mail_nos), 50):
-                        if user_state.accounts.get(email_addr, {}).get("document_found"):
+                        if mode == "adaptive" and user_state.accounts.get(email_addr, {}).get("document_found"):
                             print(f"[SMART-ADAPTIVE] {email_addr} Phát hiện ra giấy tờ sớm, STOP FETCH part_num={part_num}", flush=True)
                             break
                             

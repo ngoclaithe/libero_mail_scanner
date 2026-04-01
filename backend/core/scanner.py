@@ -37,7 +37,7 @@ class Scanner:
     def accounts_preview(self) -> list:
         return [a["email"] for a in self._load_accounts()]
 
-    def start(self) -> tuple[bool, str]:
+    def start(self, mode: str = "adaptive") -> tuple[bool, str]:
         if self.state.status == "running":
             return False, "Already running"
 
@@ -60,7 +60,7 @@ class Scanner:
 
         self._thread = threading.Thread(
             target=self._run,
-            args=(accounts,),
+            args=(accounts, mode),
             daemon=True,
             name=f"scanner-user-{self.user_id}",
         )
@@ -80,13 +80,13 @@ class Scanner:
         snap["proxies"] = self.pool.all_info() if self.pool else []
         return snap
 
-    def _run(self, accounts: list):
+    def _run(self, accounts: list, mode: str = "adaptive"):
         with ThreadPoolExecutor(
             max_workers=MAX_WORKERS,
             thread_name_prefix="worker",
         ) as executor:
             futures = {
-                executor.submit(run_account, acc, self.pool, self._stop, self.state): acc["email"]
+                executor.submit(run_account, acc, self.pool, self._stop, self.state, mode): acc["email"]
                 for acc in accounts
             }
             for fut in as_completed(futures):
