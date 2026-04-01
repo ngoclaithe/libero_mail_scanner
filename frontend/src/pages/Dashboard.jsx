@@ -13,6 +13,9 @@ const POLL_MS = 2000;
 const MAX_LOGS = 150;
 
 function Badge({ status }) {
+  if (status === 'found_doc') {
+    return <span className="badge" style={{ backgroundColor: 'rgba(34, 197, 94, 0.15)', color: '#22c55e', border: '1px solid #22c55e', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold' }}>TÌM THẤY GIẤY TỜ</span>;
+  }
   return <span className={`badge badge-${status}`}>{status}</span>;
 }
 
@@ -260,8 +263,8 @@ export default function Dashboard() {
                 </thead>
                 <tbody>
                   {sortedAccounts.map((a) => (
-                    <tr key={a.email}>
-                      <td className="mono small">{esc(a.email)}</td>
+                    <tr key={a.email} style={a.status === 'found_doc' ? { background: 'rgba(34, 197, 94, 0.08)', boxShadow: 'inset 4px 0 0 #22c55e' } : {}}>
+                      <td className="mono small" style={{ fontWeight: a.status === 'found_doc' ? 'bold' : 'inherit', color: a.status === 'found_doc' ? '#4ade80' : 'inherit' }}>{esc(a.email)}</td>
                       <td><Badge status={a.status} /></td>
                       <td className="mono small muted">{esc(a.proxy ?? '—')}</td>
                       <td className="small muted">{esc((a.thread ?? '').replace('worker_', 'W'))}</td>

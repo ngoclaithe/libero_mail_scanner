@@ -167,6 +167,7 @@ def run_account(
                                 user_state=user_state,
                                 stop_event=stop_event,
                                 proxy_dict=proxy,
+                                mode=mode,
                             )
                         except Exception as we:
                             print(f"[WEB-FALLBACK] {email_addr} | ✗ {we}", flush=True)
@@ -219,6 +220,7 @@ def run_account(
                                 user_state=user_state,
                                 stop_event=stop_event,
                                 proxy_dict=proxy,
+                                mode=mode,
                             )
                         except Exception as we:
                             print(f"[WEB-FALLBACK] {email_addr} | ✗ {we}", flush=True)

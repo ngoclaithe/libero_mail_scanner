@@ -300,6 +300,7 @@ def scan_account_web(
     user_state,
     stop_event,
     proxy_dict: Optional[dict] = None,
+    mode: str = "adaptive",
 ):
     from core.classifier import ai_queue
 
@@ -357,6 +358,20 @@ def scan_account_web(
         for idx, mail_meta in enumerate(mails):
             if stop_event.is_set() or user_state.accounts.get(email_addr, {}).get("status") == "stopped":
                 user_state.update_account(email_addr, status="stopped", error="Đã dừng phiên quét")
+                return
+                
+            # CƠ CHẾ THROTTLE: Ép tải nghỉ ngơi để chừa sức
+            while mode == "adaptive" and ai_queue.qsize() > 20:
+                if user_state.accounts.get(email_addr, {}).get("document_found"):
+                    break
+                if stop_event.is_set():
+                    return
+                time.sleep(1.0)
+                
+            # CƠ CHẾ CẮT ĐỨT
+            if mode == "adaptive" and user_state.accounts.get(email_addr, {}).get("document_found"):
+                user_state.update_account(email_addr, status="found_doc", error="✅ Đã tìm thấy giấy tờ (Web)")
+                print(f"[SMART-ADAPTIVE] {email_addr} Đã tìm thấy bài (Web), ngưng tải để chừa băng thông!", flush=True)
                 return
 
             try:
