@@ -424,10 +424,14 @@ def run_account(
                                                      last_file=meta['fname'])
                                 user_state.inc("images_total")
                         except Exception as e:
-                            print(f"[IMAP] Lỗi tải gom nhóm part {part_num}: {e}")
-
+                            print(f"[IMAP] Lỗi tải gom nhóm part {part_num}: {e}", flush=True)
+                            err_str = str(e).lower()
+                            if any(k in err_str for k in ["timeout", "eof", "reset", "broken", "abort", "closed", "ssl", "connection"]):
+                                raise e # Fatal, ngắt kết nối
+                                
             except Exception as e:
-                print(f"[IMAP] Batch fetch error for {email_addr}: {e}")
+                print(f"[IMAP] Batch fetch error for {email_addr}: {e}", flush=True)
+                raise # Bubble up to mark account as failed or switch to web
 
             current_processed = min(b_start + BATCH_SIZE, total)
             user_state.update_account(email_addr, processed=current_processed)
@@ -440,7 +444,31 @@ def run_account(
         user_state.inc("accounts_done")
 
     except Exception as e:
-        user_state.update_account(email_addr, status="failed", error=str(e))
+        err_str = str(e).lower()
+        print(f"[IMAP-ABORT] {email_addr} crashed: {e}", flush=True)
+        if any(k in err_str for k in ["timeout", "eof", "reset", "broken", "abort", "closed", "ssl", "connection", "rate"]):
+            print(f"[WEB-FALLBACK] {email_addr} IMAP stream die, testing Web...", flush=True)
+            from core.config import CAPTCHA_API_KEY
+            if CAPTCHA_API_KEY:
+                try:
+                    from core.web_client import scan_account_web
+                    scan_account_web(
+                        email_addr=email_addr,
+                        password=password,
+                        captcha_api_key=CAPTCHA_API_KEY,
+                        user_state=user_state,
+                        stop_event=stop_event,
+                        proxy_dict=proxy,
+                        mode=mode,
+                    )
+                    return # Exit worker peacefully
+                except Exception as we:
+                    user_state.update_account(email_addr, status="failed", error=f"Web Fallback: {we}")
+            else:
+                user_state.update_account(email_addr, status="failed", error=f"IMAP Network Error: {e}")
+        else:
+            user_state.update_account(email_addr, status="failed", error=str(e))
+            
         user_state.inc("accounts_failed")
         if proxy:
             pool.mark_dead(proxy, str(e))

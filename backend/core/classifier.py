@@ -13,7 +13,10 @@ cv2.setNumThreads(1)
 SHOW_VERBOSE_OCR_LOGS = False
 
 def _log(msg: str):
-    if "[OCR-DEBUG]" in msg and not SHOW_VERBOSE_OCR_LOGS:
+    if "TÌM THẤY TÀI LIỆU" in msg:
+        print(msg, flush=True)
+        return
+    if not SHOW_VERBOSE_OCR_LOGS:
         return
     print(msg, flush=True)
 
@@ -193,7 +196,7 @@ class ClassifierEngine:
                 self.process_file(email_addr, Path(file_path), mime, proxy_state)
                 t_total = _time.time() - t_start
                 
-                print(f"[AI-PERF] {mp.current_process().name} quét {Path(file_path).name} xong trong {t_total:.2f}s (Queue: ~{ai_queue.qsize()})", flush=True)
+                # print(f"[AI-PERF] {mp.current_process().name} quét {Path(file_path).name} xong trong {t_total:.2f}s (Queue: ~{ai_queue.qsize()})", flush=True)
             except queue.Empty:
                 continue
             except Exception as e:

@@ -29,6 +29,7 @@ class ImapClient(imaplib.IMAP4):
             timeout=timeout or IMAP_TIMEOUT,
         )
         self.sock = self._ssl_ctx.wrap_socket(raw_sock, server_hostname=host)
+        self.sock.settimeout(timeout or IMAP_TIMEOUT)
         self.file = self.sock.makefile("rb")
 
     def read(self, size: int) -> bytes:
@@ -77,6 +78,7 @@ class ImapClientStartTLS(imaplib.IMAP4):
         if typ != 'OK':
             raise imaplib.IMAP4.error(f"STARTTLS failed: {data}")
         self.sock = self._ssl_ctx.wrap_socket(self._raw_sock, server_hostname=self.host)
+        self.sock.settimeout(IMAP_TIMEOUT)
         self.file = self.sock.makefile("rb")
         typ, data = self.capability()
         self._cap_result = data

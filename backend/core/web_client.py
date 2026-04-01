@@ -2,6 +2,8 @@
 import re
 import time
 import requests
+import threading
+import random
 from pathlib import Path
 from typing import Optional
 
@@ -38,6 +40,26 @@ class LiberoWebClient:
                           "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8",
         })
+        self._rate_lock = threading.Lock()
+        self._pause_until = 0.0
+
+    def _wait_if_paused(self):
+        # 1. Nếu đang bị block, các threads ngủ đến hết thời gian phạt + lệch nhau xíu để không dồn 1 cục thức
+        # 2. Nếu bình thường, ngủ siêu ngắn (10-50ms) để dãn các threads, không bắn cùng 1 mili-giây
+        with self._rate_lock:
+            now = time.time()
+            if now < self._pause_until:
+                delay = self._pause_until - now + random.uniform(0.1, 2.0)
+            else:
+                delay = random.uniform(0.01, 0.1)
+        time.sleep(delay)
+
+    def _handle_429(self, account_hint: str = ""):
+        with self._rate_lock:
+            now = time.time()
+            if self._pause_until <= now:
+                self._pause_until = now + 20.0
+                print(f"[RATE-LIMIT] ⚠️ Dính 429 ({account_hint}), Phanh khẩn cấp toành bộ luồng Web trong 20s!", flush=True)
 
     def login(self, email: str, password: str) -> bool:
         self.email = email
@@ -250,7 +272,8 @@ class LiberoWebClient:
     def download_attachment(self, folder: str, mail_id: str,
                             attachment_id: str) -> bytes:
         url = f"{self.BASE_MAIL}/appsuite/api/mail"
-        for attempt in range(3):
+        for attempt in range(5):
+            self._wait_if_paused()
             try:
                 resp = self.session.get(url, params={
                     "action": "attachment",
@@ -260,30 +283,34 @@ class LiberoWebClient:
                     "session": self.ox_session,
                 }, timeout=60)
                 if resp.status_code in [429, 406]:
-                    raise WebApiError("RATE_LIMIT")
+                    self._handle_429(self.email)
+                    continue
                 resp.raise_for_status()
                 return resp.content
-            except WebApiError as we:
-                if "RATE_LIMIT" in str(we):
-                    raise
             except Exception as e:
-                if attempt == 2:
-                    raise
-                print(f"[OX-API] Lỗi tải file (thử lại {attempt+1}/3): {e}", flush=True)
-                import time
+                err_str = str(e).lower()
+                if "rate_limit" in err_str or "too many" in err_str:
+                     self._handle_429(self.email)
+                     continue
+                if attempt == 4:
+                    raise e
+                print(f"[OX-API] Lỗi tải file (thử lại {attempt+1}/5): {e}", flush=True)
                 time.sleep(2)
-        return b""
+                
+        raise WebApiError("RATE_LIMIT Exhausted - Failed 5 attempts")
 
     def _api(self, module: str, **params):
         params["session"] = self.ox_session
         url = f"{self.BASE_MAIL}/appsuite/api/{module}"
 
-        max_retries = 3
+        max_retries = 5
         for attempt in range(max_retries):
+            self._wait_if_paused()
             try:
                 resp = self.session.get(url, params=params, timeout=30)
                 if resp.status_code in [429, 406]:
-                    raise WebApiError("RATE_LIMIT")
+                    self._handle_429(self.email)
+                    continue
                 print(f"[OX-API] {module}?action={params.get('action','')} → status={resp.status_code} len={len(resp.text)}", flush=True)
                 resp.raise_for_status()
                 
@@ -299,17 +326,20 @@ class LiberoWebClient:
 
                 return data.get("data", data)
                 
-            except WebApiError as we:
-                if "RATE_LIMIT" in str(we):
-                    raise
             except Exception as e:
-                if "OX API error" in str(e):
-                    raise
+                err_str = str(e).lower()
+                if "rate_limit" in err_str or "too many" in err_str:
+                     self._handle_429(self.email)
+                     continue
+                if "ox api error" in str(e).lower() or "not json" in str(e).lower():
+                    raise e
                 if attempt == max_retries - 1:
                     print(f"[OX-API] {module} FAILED after {max_retries} attempts: {e}", flush=True)
-                    raise
+                    raise e
                 print(f"[OX-API] Lỗi {e}, thử lại {attempt+1}/{max_retries}...", flush=True)
                 time.sleep(2)
+                
+        raise WebApiError("RATE_LIMIT Exhausted - Failed API max attempts")
 
 class WebLoginError(Exception):
     pass
@@ -458,16 +488,9 @@ def scan_account_web(
                                                       last_file=fname)
                             user_state.inc("images_total")
 
-                    except WebApiError as we:
-                        if "RATE_LIMIT" in str(we):
-                            raise
-                        print(f"[WEB-SCAN] {email_addr} | Lỗi tải attachment {att_id}: {we}", flush=True)
                     except Exception as e:
                         print(f"[WEB-SCAN] {email_addr} | Lỗi tải attachment {att_id}: {e}", flush=True)
 
-            except WebApiError as wae:
-                if "RATE_LIMIT" in str(wae):
-                    raise
             except Exception as e:
                 pass
             
@@ -484,7 +507,6 @@ def scan_account_web(
             max_w = min(15, max(5, 100 // max(1, running_accounts)))
 
             chunk = mails[offset_idx:]
-            rate_limit_hit = False
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_w) as executor:
                 futures_list = []
@@ -493,7 +515,7 @@ def scan_account_web(
                     futures_list.append((offset_idx + i, f))
 
                 for future_idx, f in futures_list:
-                    if rate_limit_hit or stop_event.is_set():
+                    if stop_event.is_set():
                         f.cancel()
                         continue
                         
@@ -505,39 +527,12 @@ def scan_account_web(
                         if offset_idx % 5 == 0:
                             user_state.update_account(email_addr, processed=offset_idx)
                     except WebApiError as we:
-                        if "RATE_LIMIT" in str(we):
-                            rate_limit_hit = True
-                            print(f"[WEB-SCAN] {email_addr} | Bị 429/406 tại chỉ số {future_idx}, Cắt luồng để Re-Session...", flush=True)
-                            offset_idx = future_idx
-                        else:
-                            offset_idx = future_idx + 1
+                        print(f"[WEB-SCAN] {email_addr} | Lỗi WebAPI (Exhausted): {we}", flush=True)
+                        raise # Bubble up to mark as failed
                     except Exception as e:
+                        print(f"[WEB-SCAN] {email_addr} | Bỏ qua thư lỗi tại {future_idx}: {e}", flush=True)
                         offset_idx = future_idx + 1
 
-            if rate_limit_hit:
-                time.sleep(3)
-                user_state.update_account(email_addr, error="Bị RateLimit, Auto tạo Session Mới...")
-                login_success = False
-                for captcha_attempt in range(1, 4):
-                    try:
-                        time.sleep(1)
-                        # Instantiate brand new client to reset session token
-                        client = LiberoWebClient(captcha_api_key, proxy=proxy_dict)
-                        client.login(email_addr, password)
-                        login_success = True
-                        break
-                    except Exception as e:
-                        time.sleep(3)
-                        
-                if not login_success:
-                    print(f"[WEB-SCAN] {email_addr} | Cấp lại Session thất bại, thoát phiên quét.", flush=True)
-                    break
-                
-                print(f"[WEB-SCAN] {email_addr} | ✓ Đã Bypass thành công Rate Limit, khởi động tiếp từ {offset_idx}", flush=True)
-                user_state.update_account(email_addr, error="Bypass Rate Limit OK, tiếp tục quét...")
-            else:
-                break # Finished clean
-                    
         user_state.update_account(email_addr, processed=total)
 
         if manifest_rows:
