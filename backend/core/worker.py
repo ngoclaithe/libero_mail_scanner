@@ -163,105 +163,37 @@ def run_account(
     raw_dir.mkdir(parents=True, exist_ok=True)
 
     mail = None
-    max_proxy_switches = min(len(pool) // 2, 10)  # Tối đa thử nửa pool, cap 10
+    MAX_PROXY_ROTATIONS = 3
     proxy_switches = 0
 
     try:
-        # ── Connect + login (with retry + proxy rotation + fallback) ──
-        LOGIN_MODES = [
-            ("ssl",      "login"),
-            ("ssl",      "auth_plain"),
-            ("starttls", "login"),
-            ("starttls", "auth_plain"),
-        ]
+        # ── Connect + login ──────────────────────────────────────
+        # Strategy: try ssl+login first. If Policy KO → web fallback immediately.
+        # If proxy error → rotate proxy (max 3), then try direct.
+        # No point trying 4 modes — Policy KO is account-level, not mode-level.
+
         attempt = 0
         while attempt < RETRY_MAX:
             if stop_event.is_set():
                 user_state.update_account(email_addr, status="stopped")
                 return
 
-            # Try all login modes before giving up
-            policy_ko_all_modes = True
-            last_err = ""
+            try:
+                proxy_label = proxy.id if proxy else "direct"
+                mail = new_client(proxy=proxy, mode="ssl")
+                typ, data = mail.login(email_addr, password)
+                # Login OK — proceed silently
+                break
 
-            for conn_mode, auth_mode in LOGIN_MODES:
-                try:
-                    proxy_label = proxy.id if proxy else "direct"
-                    mail = new_client(proxy=proxy, mode=conn_mode)
-                    welcome = getattr(mail, 'welcome', None)
-                    print(f"[IMAP-RAW] {email_addr} | proxy={proxy_label} | mode={conn_mode}+{auth_mode} | welcome={welcome}", flush=True)
-
-                    if auth_mode == "auth_plain":
-                        typ, data = authenticate_plain(mail, email_addr, password)
-                    else:
-                        typ, data = mail.login(email_addr, password)
-
-                    print(f"[IMAP-RAW] {email_addr} | LOGIN OK | mode={conn_mode}+{auth_mode} | typ={typ} data={data}", flush=True)
-                    policy_ko_all_modes = False
-                    break  # Login OK!
-
-                except imaplib.IMAP4.error as e:
-                    err = str(e)
-                    err_bytes = e.args[0] if e.args else None
-                    print(f"[IMAP-RAW] {email_addr} | proxy={proxy_label} | mode={conn_mode}+{auth_mode} | IMAP4.error | bytes={err_bytes}", flush=True)
-                    last_err = err
-
-                    if "policy" in err.lower() and "ko" in err.lower():
-                        # Policy KO — thử mode tiếp theo
-                        continue
-                    else:
-                        # Auth fail thật (sai pass / account khóa)
-                        _handle_auth_error(proxy, pool, err)
-                        user_state.update_account(email_addr, status="failed", error=err)
-                        return
-
-                except Exception as e:
-                    err = str(e)
-                    err_type = type(e).__name__
-                    proxy_label = proxy.id if proxy else "direct"
-                    print(f"[IMAP-RAW] {email_addr} | proxy={proxy_label} | mode={conn_mode}+{auth_mode} | {err_type} | {err}", flush=True)
-                    last_err = err
-
-                    # Proxy lỗi (502/407/refused) → đổi proxy, không thử mode khác
-                    is_proxy_error = proxy and any(k in err.lower() for k in [
-                        "proxy rejected", "502", "407", "bad gateway",
-                        "connection refused", "connect tunnel",
-                    ])
-                    if is_proxy_error and proxy_switches < max_proxy_switches:
-                        old_proxy_id = proxy.id
-                        pool.mark_dead(proxy, err)
+            except imaplib.IMAP4.error as e:
+                err = str(e)
+                if "policy" in err.lower() and "ko" in err.lower():
+                    # ── POLICY KO → immediate web fallback ──
+                    print(f"[POLICY-KO] {email_addr} | proxy={proxy_label} → web fallback", flush=True)
+                    if proxy:
                         pool.release(proxy)
-                        proxy_switches += 1
-                        proxy = pool.acquire(email_addr)
-                        new_proxy_id = proxy.id if proxy else "direct"
-                        print(f"[PROXY-ROTATE] {email_addr}: {old_proxy_id} → {new_proxy_id} (lần {proxy_switches}/{max_proxy_switches})", flush=True)
-                        user_state.update_account(email_addr,
-                                                  proxy=new_proxy_id,
-                                                  error=f"Proxy lỗi → đổi proxy ({proxy_switches}/{max_proxy_switches})")
-                        time.sleep(1)
-                        attempt = 0
-                        policy_ko_all_modes = False
-                        break  # Break inner loop, retry outer with new proxy
-                    else:
-                        # Connection error (timeout, DNS, etc) → retry
-                        attempt += 1
-                        print(f"[IMAP-RAW] {email_addr} | retry {attempt}/{RETRY_MAX}", flush=True)
-                        if attempt >= RETRY_MAX:
-                            _handle_conn_error(proxy, pool, err)
-                            user_state.update_account(email_addr, status="failed", error=err)
-                            return
-                        time.sleep(2 ** attempt)
-                        policy_ko_all_modes = False
-                        break  # Break inner, retry outer
-            else:
-                # All 4 modes tried
-                if policy_ko_all_modes:
-                    # Policy KO on ALL modes — try web fallback
                     from core.config import CAPTCHA_API_KEY
                     if CAPTCHA_API_KEY:
-                        print(f"[IMAP-RAW] {email_addr} | POLICY KO on all 4 modes → fallback web login", flush=True)
-                        if proxy:
-                            pool.release(proxy)
                         try:
                             from core.web_client import scan_account_web
                             scan_account_web(
@@ -271,17 +203,52 @@ def run_account(
                                 user_state=user_state,
                                 stop_event=stop_event,
                             )
-                        except Exception as e:
-                            print(f"[WEB-FALLBACK] {email_addr} | ✗ {e}", flush=True)
+                        except Exception as we:
+                            print(f"[WEB-FALLBACK] {email_addr} | ✗ {we}", flush=True)
                             user_state.update_account(email_addr, status="failed",
-                                                      error=f"Web fallback: {e}")
-                        return
+                                                      error=f"Web: {we}")
                     else:
-                        print(f"[IMAP-RAW] {email_addr} | POLICY KO on all 4 modes — no CAPTCHA_API_KEY, skip", flush=True)
+                        print(f"[POLICY-KO] {email_addr} | No CAPTCHA_API_KEY → skip", flush=True)
                         user_state.update_account(email_addr, status="failed",
-                                                  error=f"Policy KO — IMAP blocked, cần CAPTCHA_API_KEY cho web fallback")
+                                                  error="Policy KO, no captcha key")
+                    return
+                else:
+                    # Real auth fail (wrong password, locked, etc)
+                    _handle_auth_error(proxy, pool, err)
+                    user_state.update_account(email_addr, status="failed", error=err)
+                    return
+
+            except Exception as e:
+                err = str(e)
+                err_type = type(e).__name__
+                proxy_label = proxy.id if proxy else "direct"
+
+                # Check if this is a proxy error
+                is_proxy_error = proxy and any(k in err.lower() for k in [
+                    "proxy rejected", "502", "407", "bad gateway",
+                    "connection refused", "connect tunnel",
+                ])
+
+                if is_proxy_error and proxy_switches < MAX_PROXY_ROTATIONS:
+                    old_id = proxy.id
+                    pool.mark_dead(proxy, err)
+                    pool.release(proxy)
+                    proxy_switches += 1
+                    proxy = pool.acquire(email_addr)
+                    new_id = proxy.id if proxy else "direct"
+                    print(f"[PROXY] {email_addr}: {old_id} → {new_id} ({proxy_switches}/{MAX_PROXY_ROTATIONS})", flush=True)
+                    user_state.update_account(email_addr, proxy=new_id)
+                    time.sleep(0.5)
+                    continue  # Retry with new proxy
+                else:
+                    # Connection error or proxy exhausted → retry
+                    attempt += 1
+                    if attempt >= RETRY_MAX:
+                        _handle_conn_error(proxy, pool, err)
+                        user_state.update_account(email_addr, status="failed", error=err)
                         return
-                break  # Login OK, exit while loop
+                    time.sleep(2 ** attempt)
+                    continue
 
         # ── Select outbox ─────────────────────────────────────
         status, _ = mail.select(f'"{SENT_FOLDER}"')
