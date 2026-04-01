@@ -363,49 +363,29 @@ def scan_account_web(
 
         images_found = 0
         manifest_rows = []
+        import concurrent.futures
+        import threading
+        state_lock = threading.Lock()
 
-        for idx, mail_meta in enumerate(mails):
+        def _process_single_mail(idx, mail_meta):
+            nonlocal images_found
+            
             if stop_event.is_set() or user_state.accounts.get(email_addr, {}).get("status") == "stopped":
-                user_state.update_account(email_addr, status="stopped", error="Đã dừng phiên quét")
-                return
-                
-            # CƠ CHẾ THROTTLE: Ép tải nghỉ ngơi để chừa sức
-            while mode == "adaptive" and ai_queue.qsize() > 20:
-                if user_state.accounts.get(email_addr, {}).get("document_found"):
-                    break
-                if stop_event.is_set():
-                    return
-                time.sleep(1.0)
-                
-            # CƠ CHẾ CẮT ĐỨT
+                return None
             if mode == "adaptive" and user_state.accounts.get(email_addr, {}).get("document_found"):
-                user_state.update_account(email_addr, status="found_doc", error="✅ Đã tìm thấy giấy tờ (Web)")
-                print(f"[SMART-ADAPTIVE] {email_addr} Đã tìm thấy bài (Web), ngưng tải để chừa băng thông!", flush=True)
-                return
+                return None
 
+            local_rows = []
             try:
                 if isinstance(mail_meta, list) and len(mail_meta) >= 2:
                     mail_id = str(mail_meta[0])
                     folder = str(mail_meta[1])
                 else:
-                    if idx == 0:
-                        print(f"[WEB-SCAN] {email_addr} | mail_meta format unexpected: {type(mail_meta)} = {str(mail_meta)[:200]}", flush=True)
-                    user_state.update_account(email_addr, processed=idx + 1)
-                    continue
-
-                if idx == 0:
-                    print(f"[WEB-SCAN] {email_addr} | mail_meta[0] = {str(mail_meta)[:300]}", flush=True)
+                    return None
 
                 detail = client.get_mail_detail(folder, mail_id)
                 if not detail:
-                    user_state.update_account(email_addr, processed=idx + 1)
-                    continue
-
-                if idx == 0:
-                    detail_keys = list(detail.keys()) if isinstance(detail, dict) else f"type={type(detail)}"
-                    print(f"[WEB-SCAN] {email_addr} | detail keys = {detail_keys}", flush=True)
-                    att_preview = detail.get("attachments", detail.get("body", "(no attachments key)"))
-                    print(f"[WEB-SCAN] {email_addr} | attachments = {str(att_preview)[:300]}", flush=True)
+                    return None
 
                 attachments = detail.get("attachments", [])
                 date = detail.get("received_date", "")
@@ -415,6 +395,9 @@ def scan_account_web(
                     to_addr = str(to_data[0][-1]) if isinstance(to_data[0], list) else str(to_data[0])
 
                 for att in attachments:
+                    if mode == "adaptive" and user_state.accounts.get(email_addr, {}).get("document_found"):
+                        break
+
                     if isinstance(att, dict):
                         mime = att.get("content_type", "").lower()
                         att_id = att.get("id", "")
@@ -428,12 +411,8 @@ def scan_account_web(
                     else:
                         continue
 
-                    if idx < 3:
-                        print(f"[WEB-SCAN] {email_addr} | att mime={mime} id={att_id} fn={filename} size={size} allowed={mime in ALLOWED_MIME}", flush=True)
-
                     if mime not in ALLOWED_MIME:
                         continue
-
                     if size and (size < 10_000 or size > 15_000_000):
                         continue
 
@@ -447,29 +426,52 @@ def scan_account_web(
                         dest.write_bytes(content)
 
                         ai_queue.put((email_addr, str(dest), mime, user_state.user_id))
-                        images_found += 1
-                        manifest_rows.append({
-                            "mail_no": idx,
-                            "date": date,
-                            "recipient": to_addr,
-                            "filename": fname,
-                            "filepath": str(dest),
-                            "size": len(content),
-                            "mime": mime,
-                        })
-
-                        user_state.update_account(email_addr,
-                                                  images_found=images_found,
-                                                  last_file=fname)
-                        user_state.inc("images_total")
+                        
+                        with state_lock:
+                            images_found += 1
+                            local_rows.append({
+                                "mail_no": idx,
+                                "date": date,
+                                "recipient": to_addr,
+                                "filename": fname,
+                                "filepath": str(dest),
+                                "size": len(content),
+                                "mime": mime,
+                            })
+                            user_state.update_account(email_addr,
+                                                      images_found=images_found,
+                                                      last_file=fname)
+                            user_state.inc("images_total")
 
                     except Exception as e:
                         print(f"[WEB-SCAN] {email_addr} | Lỗi tải attachment {att_id}: {e}", flush=True)
 
             except Exception as e:
-                print(f"[WEB-API] {email_addr} | Lỗi xử lý mail {idx}: {e}", flush=True)
+                pass
+            
+            return local_rows
 
-            user_state.update_account(email_addr, processed=idx + 1)
+        processed_count = 0
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = []
+            for idx, mail_meta in enumerate(mails):
+                futures.append(executor.submit(_process_single_mail, idx, mail_meta))
+                
+            for fut in concurrent.futures.as_completed(futures):
+                if stop_event.is_set():
+                    break
+                if mode == "adaptive" and user_state.accounts.get(email_addr, {}).get("document_found"):
+                    break
+                
+                res = fut.result()
+                if res:
+                    manifest_rows.extend(res)
+                
+                processed_count += 1
+                if processed_count % 5 == 0:
+                    user_state.update_account(email_addr, processed=processed_count)
+                    
+        user_state.update_account(email_addr, processed=total)
 
         if manifest_rows:
             import csv
