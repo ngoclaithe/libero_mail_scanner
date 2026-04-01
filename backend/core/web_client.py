@@ -372,11 +372,33 @@ def scan_account_web(
                               status="scanning",
                               error="Web login (giải CAPTCHA)...")
 
-    client = LiberoWebClient(captcha_api_key, proxy=proxy_dict)
+    MAX_CAPTCHA_RETRIES = 3
+    client = None
 
     try:
-        # 1. Login
-        client.login(email_addr, password)
+        # 1. Login with captcha retry
+        for captcha_attempt in range(1, MAX_CAPTCHA_RETRIES + 1):
+            try:
+                client = LiberoWebClient(captcha_api_key, proxy=proxy_dict)
+                client.login(email_addr, password)
+                break  # Login OK
+            except CaptchaError as ce:
+                print(f"[WEB-LOGIN] {email_addr} | Captcha lần {captcha_attempt}/{MAX_CAPTCHA_RETRIES} thất bại: {ce}", flush=True)
+                if captcha_attempt >= MAX_CAPTCHA_RETRIES:
+                    raise  # All retries exhausted
+                user_state.update_account(email_addr, error=f"Captcha retry {captcha_attempt+1}/{MAX_CAPTCHA_RETRIES}...")
+                continue
+            except WebLoginError as wle:
+                err_msg = str(wle).lower()
+                if any(k in err_msg for k in ["authen", "password", "credential", "blocked"]):
+                    # Auth error — skip, don't retry
+                    raise
+                # Other login errors — retry
+                print(f"[WEB-LOGIN] {email_addr} | Login lần {captcha_attempt}/{MAX_CAPTCHA_RETRIES} lỗi: {wle}", flush=True)
+                if captcha_attempt >= MAX_CAPTCHA_RETRIES:
+                    raise
+                continue
+
         user_state.update_account(email_addr, error="Web login OK, đang quét...")
 
         if stop_event.is_set():
