@@ -38,5 +38,8 @@ echo "export LD_LIBRARY_PATH=\"$NVIDIA_PATHS:\$LD_LIBRARY_PATH\"" >> ~/.bashrc
 export LD_LIBRARY_PATH="$NVIDIA_PATHS:$LD_LIBRARY_PATH"
 
 if command -v pm2 &> /dev/null; then
-    pm2 restart libero_backend --update-env
+    echo "=> Đang đăng ký và khởi động libero_backend vào PM2..."
+    pm2 delete libero_backend 2>/dev/null || true
+    pm2 start "uv run uvicorn main:app --host 0.0.0.0 --port 8000" --name "libero_backend"
+    pm2 save
 fi
