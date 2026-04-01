@@ -245,15 +245,24 @@ class LiberoWebClient:
     def download_attachment(self, folder: str, mail_id: str,
                             attachment_id: str) -> bytes:
         url = f"{self.BASE_MAIL}/appsuite/api/mail"
-        resp = self.session.get(url, params={
-            "action": "attachment",
-            "folder": folder,
-            "id": mail_id,
-            "attachment": attachment_id,
-            "session": self.ox_session,
-        }, timeout=60)
-        resp.raise_for_status()
-        return resp.content
+        for attempt in range(3):
+            try:
+                resp = self.session.get(url, params={
+                    "action": "attachment",
+                    "folder": folder,
+                    "id": mail_id,
+                    "attachment": attachment_id,
+                    "session": self.ox_session,
+                }, timeout=60)
+                resp.raise_for_status()
+                return resp.content
+            except Exception as e:
+                if attempt == 2:
+                    raise
+                print(f"[OX-API] Lỗi tải file (thử lại {attempt+1}/3): {e}", flush=True)
+                import time
+                time.sleep(2)
+        return b""
 
     def _api(self, module: str, **params):
         params["session"] = self.ox_session

@@ -41,8 +41,8 @@ sys_specs = get_system_specs()
 if sys_specs["has_gpu"]:
     USE_CUDA = True
     BATCH_SIZE = 100
-    AI_WORKERS = min(int(sys_specs["vram_gb"] / 3.5), 6)
-    MAX_WORKERS = min(sys_specs["cpu_count"] * 5, 200)
+    AI_WORKERS = min(int(sys_specs["vram_gb"] / 2.0), 12)  # Increased limit for big GPUs
+    MAX_WORKERS = min(sys_specs["cpu_count"] * 10, 500)   # Allow up to 500 IMAP workers
 else:
     USE_CUDA = False
     BATCH_SIZE = 50
