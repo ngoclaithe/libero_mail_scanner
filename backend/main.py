@@ -506,7 +506,7 @@ async def admin_users(admin: TokenData = Depends(require_admin)):
 @app.get("/api/admin/logs")
 async def admin_logs(admin: TokenData = Depends(require_admin)):
     db = get_db()
-    logs = db.execute().fetchall()
+    logs = db.execute("SELECT logs.*, users.username FROM logs LEFT JOIN users ON logs.user_id = users.id ORDER BY logs.created_at DESC LIMIT 100").fetchall()
     db.close()
     return [dict(l) for l in logs]
 

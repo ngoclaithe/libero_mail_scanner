@@ -61,6 +61,11 @@ class AppState:
     def status(self) -> str:
         with self._lock:
             return self._d["status"]
+            
+    @property
+    def accounts(self) -> dict:
+        with self._lock:
+            return self._d.get("accounts", {})
 
     @staticmethod
     def _blank() -> dict:
