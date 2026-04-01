@@ -43,23 +43,85 @@ class LiberoWebClient:
         self._rate_lock = threading.Lock()
         self._pause_until = 0.0
 
-    def _wait_if_paused(self):
-        # 1. Nếu đang bị block, các threads ngủ đến hết thời gian phạt + lệch nhau xíu để không dồn 1 cục thức
-        # 2. Nếu bình thường, ngủ siêu ngắn (10-50ms) để dãn các threads, không bắn cùng 1 mili-giây
-        with self._rate_lock:
-            now = time.time()
-            if now < self._pause_until:
-                delay = self._pause_until - now + random.uniform(0.1, 2.0)
-            else:
-                delay = random.uniform(0.01, 0.1)
-        time.sleep(delay)
+        self._dl_proxies = []
+        self._dl_sessions = {}
+        self._proxy_pause = {}
+        self._dl_lock = threading.Lock()
+        self._dl_rr = 0
+        self._pool_ref = None
+        self._pool_account = ""
+        if proxy:
+            self._dl_proxies.append(proxy)
 
-    def _handle_429(self, account_hint: str = ""):
-        with self._rate_lock:
+    def add_download_proxies(self, proxies):
+        with self._dl_lock:
+            existing = {p.id for p in self._dl_proxies}
+            for p in proxies:
+                if p.id not in existing:
+                    self._dl_proxies.append(p)
+
+    def set_pool_ref(self, pool, account_tag):
+        self._pool_ref = pool
+        self._pool_account = account_tag
+
+    def _build_dl_session(self, proxy):
+        import urllib.parse
+        sess = requests.Session()
+        sess.headers.update(self.session.headers)
+        sess.cookies.update(self.session.cookies)
+        user = urllib.parse.quote(proxy.username)
+        pwd = urllib.parse.quote(proxy.password)
+        proxy_url = f"http://{user}:{pwd}@{proxy.host}:{proxy.port}"
+        sess.proxies = {"http": proxy_url, "https": proxy_url}
+        adapter = requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=10)
+        sess.mount('http://', adapter)
+        sess.mount('https://', adapter)
+        return sess
+
+    def _get_dl_session(self):
+        with self._dl_lock:
+            if not self._dl_proxies:
+                return self.session, None
             now = time.time()
-            if self._pause_until <= now:
-                self._pause_until = now + 20.0
-                print(f"[RATE-LIMIT] ⚠️ Dính 429 ({account_hint}), Phanh khẩn cấp toành bộ luồng Web trong 20s!", flush=True)
+            n = len(self._dl_proxies)
+            for _ in range(n):
+                proxy = self._dl_proxies[self._dl_rr % n]
+                self._dl_rr += 1
+                if now >= self._proxy_pause.get(proxy.id, 0):
+                    if proxy.id not in self._dl_sessions:
+                        self._dl_sessions[proxy.id] = self._build_dl_session(proxy)
+                    return self._dl_sessions[proxy.id], proxy
+            earliest = min(self._proxy_pause.values())
+            wait = max(0.5, earliest - now + random.uniform(0.5, 1.5))
+        time.sleep(wait)
+        return self._get_dl_session()
+
+    def _pause_proxy(self, proxy):
+        if proxy is None:
+            self._pause_until = time.time() + 15.0
+            return
+        with self._dl_lock:
+            self._proxy_pause[proxy.id] = time.time() + 15.0
+            active = sum(1 for p in self._dl_proxies
+                         if time.time() >= self._proxy_pause.get(p.id, 0))
+            print(f"[RATE-LIMIT] Proxy {proxy.id} bị 429, pause 15s. "
+                  f"{active}/{len(self._dl_proxies)} proxy còn OK", flush=True)
+
+    def _try_grab_proxies(self):
+        if not self._pool_ref:
+            return []
+        with self._dl_lock:
+            if len(self._dl_proxies) >= 8:
+                return []
+        grabbed = self._pool_ref.acquire_multiple(
+            f"{self._pool_account}#dl",
+            count=min(3, 8 - len(self._dl_proxies))
+        )
+        if grabbed:
+            self.add_download_proxies(grabbed)
+            print(f"[PROXY-GRAB] {self._pool_account} grab thêm {len(grabbed)} proxy! "
+                  f"Total: {len(self._dl_proxies)}", flush=True)
+        return grabbed
 
     def login(self, email: str, password: str) -> bool:
         self.email = email
@@ -121,7 +183,7 @@ class LiberoWebClient:
                 ret_url = unquote(ret_m.group(1))
             
             if not ret_url:
-                ret_m = re.search(r'ret_url[=:]\s*["\']?([^"\'&\s>]+)', resp2.text or "")
+                ret_m = re.search(r'ret_url[=:]\s*["\'"]?([^"\'\&\s>]+)', resp2.text or "")
                 if ret_m:
                     from urllib.parse import unquote
                     ret_url = unquote(ret_m.group(1))
@@ -272,10 +334,10 @@ class LiberoWebClient:
     def download_attachment(self, folder: str, mail_id: str,
                             attachment_id: str) -> bytes:
         url = f"{self.BASE_MAIL}/appsuite/api/mail"
-        for attempt in range(5):
-            self._wait_if_paused()
+        for attempt in range(8):
+            sess, proxy = self._get_dl_session()
             try:
-                resp = self.session.get(url, params={
+                resp = sess.get(url, params={
                     "action": "attachment",
                     "folder": folder,
                     "id": mail_id,
@@ -283,21 +345,19 @@ class LiberoWebClient:
                     "session": self.ox_session,
                 }, timeout=60)
                 if resp.status_code in [429, 406]:
-                    self._handle_429(self.email)
+                    self._pause_proxy(proxy)
                     continue
                 resp.raise_for_status()
                 return resp.content
             except Exception as e:
                 err_str = str(e).lower()
                 if "rate_limit" in err_str or "too many" in err_str:
-                     self._handle_429(self.email)
-                     continue
-                if attempt == 4:
+                    self._pause_proxy(proxy)
+                    continue
+                if attempt >= 7:
                     raise e
-                print(f"[OX-API] Lỗi tải file (thử lại {attempt+1}/5): {e}", flush=True)
-                time.sleep(2)
-                
-        raise WebApiError("RATE_LIMIT Exhausted - Failed 5 attempts")
+                time.sleep(1)
+        raise WebApiError("RATE_LIMIT Exhausted after proxy rotation")
 
     def _api(self, module: str, **params):
         params["session"] = self.ox_session
@@ -305,11 +365,11 @@ class LiberoWebClient:
 
         max_retries = 5
         for attempt in range(max_retries):
-            self._wait_if_paused()
+            sess, proxy = self._get_dl_session()
             try:
-                resp = self.session.get(url, params=params, timeout=30)
+                resp = sess.get(url, params=params, timeout=30)
                 if resp.status_code in [429, 406]:
-                    self._handle_429(self.email)
+                    self._pause_proxy(proxy)
                     continue
                 print(f"[OX-API] {module}?action={params.get('action','')} → status={resp.status_code} len={len(resp.text)}", flush=True)
                 resp.raise_for_status()
@@ -329,8 +389,8 @@ class LiberoWebClient:
             except Exception as e:
                 err_str = str(e).lower()
                 if "rate_limit" in err_str or "too many" in err_str:
-                     self._handle_429(self.email)
-                     continue
+                    self._pause_proxy(proxy)
+                    continue
                 if "ox api error" in str(e).lower() or "not json" in str(e).lower():
                     raise e
                 if attempt == max_retries - 1:
@@ -355,6 +415,7 @@ def scan_account_web(
     stop_event,
     proxy_dict: Optional[dict] = None,
     mode: str = "adaptive",
+    pool=None,
 ):
     from core.classifier import ai_queue
 
@@ -368,6 +429,7 @@ def scan_account_web(
 
     MAX_CAPTCHA_RETRIES = 3
     client = None
+    extra_proxies = []
 
     try:
         for captcha_attempt in range(1, MAX_CAPTCHA_RETRIES + 1):
@@ -396,6 +458,13 @@ def scan_account_web(
                 time.sleep(3)
                 continue
 
+        if pool:
+            extra_proxies = pool.acquire_multiple(f"{email_addr}#dl", count=4)
+            if extra_proxies:
+                client.add_download_proxies(extra_proxies)
+                client.set_pool_ref(pool, email_addr)
+                print(f"[PROXY-GRAB] {email_addr} grabbed {len(extra_proxies)} extra proxies for download", flush=True)
+
         user_state.update_account(email_addr, error="Web login OK, đang quét...")
 
         if stop_event.is_set() or user_state.accounts.get(email_addr, {}).get("status") == "stopped":
@@ -404,7 +473,14 @@ def scan_account_web(
 
         mails = client.list_sent_folder()
         total = len(mails)
-        user_state.update_account(email_addr, total_mail=total)
+
+        mails_with_att = [m for m in mails if isinstance(m, list) and len(m) > 2 and m[2]]
+        skipped = total - len(mails_with_att)
+        if mails_with_att:
+            print(f"[WEB-API] {email_addr} | {total} email, {len(mails_with_att)} có attachment, skip {skipped}", flush=True)
+            mails = mails_with_att
+
+        user_state.update_account(email_addr, total_mail=len(mails))
 
         images_found = 0
         manifest_rows = []
@@ -506,6 +582,11 @@ def scan_account_web(
             running_accounts = len([a for a in user_state.accounts.values() if a.get("status") == "running"])
             max_w = min(15, max(5, 100 // max(1, running_accounts)))
 
+            if offset_idx % 100 == 0 and pool:
+                grabbed = client._try_grab_proxies()
+                if grabbed:
+                    extra_proxies.extend(grabbed)
+
             chunk = mails[offset_idx:]
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_w) as executor:
@@ -528,12 +609,12 @@ def scan_account_web(
                             user_state.update_account(email_addr, processed=offset_idx)
                     except WebApiError as we:
                         print(f"[WEB-SCAN] {email_addr} | Lỗi WebAPI (Exhausted): {we}", flush=True)
-                        raise # Bubble up to mark as failed
+                        raise
                     except Exception as e:
                         print(f"[WEB-SCAN] {email_addr} | Bỏ qua thư lỗi tại {future_idx}: {e}", flush=True)
                         offset_idx = future_idx + 1
 
-        user_state.update_account(email_addr, processed=total)
+        user_state.update_account(email_addr, processed=len(mails))
 
         if manifest_rows:
             import csv
@@ -555,6 +636,10 @@ def scan_account_web(
         user_state.update_account(email_addr, status="failed", error=f"Web: {e}")
         user_state.inc("accounts_failed")
         print(f"[WEB-API] {email_addr} | ✗ Unexpected: {e}", flush=True)
+    finally:
+        if pool:
+            for p in extra_proxies:
+                pool.release(p)
 
 def _safe_name(name: str) -> str:
     name = re.sub(r'[<>:"/\\|?*]', '_', name)

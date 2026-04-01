@@ -168,6 +168,7 @@ def run_account(
                                 stop_event=stop_event,
                                 proxy_dict=proxy,
                                 mode=mode,
+                                pool=pool,
                             )
                         except Exception as we:
                             print(f"[WEB-FALLBACK] {email_addr} | ✗ {we}", flush=True)
@@ -221,6 +222,7 @@ def run_account(
                                 stop_event=stop_event,
                                 proxy_dict=proxy,
                                 mode=mode,
+                                pool=pool,
                             )
                         except Exception as we:
                             print(f"[WEB-FALLBACK] {email_addr} | ✗ {we}", flush=True)
@@ -463,6 +465,7 @@ def run_account(
                         stop_event=stop_event,
                         proxy_dict=proxy,
                         mode=mode,
+                        pool=pool,
                     )
                     return # Exit worker peacefully
                 except Exception as we:

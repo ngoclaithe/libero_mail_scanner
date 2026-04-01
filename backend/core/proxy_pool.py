@@ -104,6 +104,27 @@ class ProxyPool:
         with self._lock:
             return [p.to_dict() for p in self._proxies]
 
+    def acquire_multiple(self, account: str, count: int = 1) -> list:
+        with self._lock:
+            available = [
+                p for p in self._proxies
+                if p.status in (ProxyStatus.ACTIVE, ProxyStatus.RATE_LIMITED)
+                and p.used_by is None
+            ]
+            acquired = []
+            for p in available[:count]:
+                p.used_by = account
+                p.requests += 1
+                p.last_used = datetime.now()
+                acquired.append(p)
+            return acquired
+
+    def count_free(self) -> int:
+        with self._lock:
+            return sum(1 for p in self._proxies
+                       if p.status in (ProxyStatus.ACTIVE, ProxyStatus.RATE_LIMITED)
+                       and p.used_by is None)
+
     def __len__(self) -> int:
         return len(self._proxies)
 
