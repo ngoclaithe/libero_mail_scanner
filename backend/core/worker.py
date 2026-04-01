@@ -274,7 +274,10 @@ def run_account(
                     
                 print(f"[IMAP-PERF] {email_addr.split('@')[0]}: Tải BODYSTRUCTURE {len(batch)} email tốn {t_elapsed:.2f}s", flush=True)
 
-                current_processed = b_start
+                fetch_plan = {}
+                meta_info = {}
+
+                # Giai đoạn 1: Duyệt qua cấu trúc headers để nhóm các email có chứa part giống nhau
                 for item in msg_data_list:
                     if not isinstance(item, tuple):
                         continue
@@ -283,9 +286,10 @@ def run_account(
                     msg_body = item[1]
                     
                     try:
-                        mail_no = int(header_b.split(b' ', 1)[0])
+                        mail_no_bytes = header_b.split(b' ', 1)[0]
+                        mail_no = int(mail_no_bytes)
                     except ValueError:
-                        mail_no = b_start + 1
+                        continue
 
                     msg  = message_from_bytes(msg_body)
                     date = msg.get("Date", "")
@@ -306,26 +310,6 @@ def run_account(
                         if size_bytes != -1 and (size_bytes < 10_000 or size_bytes > 15_000_000):
                             continue
 
-                        try:
-                            s2, pd_list = mail.fetch(str(mail_no).encode(), f"(BODY.PEEK[{part_num}])")
-                            if s2 != "OK" or not pd_list or not isinstance(pd_list[0], tuple):
-                                continue
-                                
-                            part_bytes = pd_list[0][1]
-                            
-                            sub_msg = message_from_bytes(b"Content-Transfer-Encoding: base64\r\n\r\n" + part_bytes)
-                            payload = sub_msg.get_payload(decode=True)
-                            if not payload:
-                                import base64
-                                raw_p = part_bytes.replace(b'\r', b'').replace(b'\n', b'')
-                                try:
-                                    payload = base64.b64decode(raw_p)
-                                except Exception:
-                                    continue
-                        except Exception as e:
-                            print(f"[IMAP] Lỗi tải part {part_num} của mail {mail_no}: {e}")
-                            continue
-
                         orig = ""
                         for i in range(len(p_info)):
                             if isinstance(p_info[i], list) and len(p_info[i]) >= 2:
@@ -339,28 +323,87 @@ def run_account(
                         att_i += 1
 
                         fname   = _safe_name(orig)
-                        dest    = raw_dir / f"mail_{mail_no:04d}_{fname}"
+                        # Lấy encoding trực tiếp từ BODYSTRUCTURE, rất quan trọng để parse file đúng định dạng
+                        encoding = p_info[5] if len(p_info) > 5 and isinstance(p_info[5], str) else "base64"
                         
-                        dest.write_bytes(payload)
-                        ai_queue.put((email_addr, str(dest), mime, user_state.user_id))
-                        images_found += 1
-                        manifest_rows.append({
-                            "mail_no":   mail_no,
-                            "date":      date,
-                            "recipient": to,
-                            "filename":  fname,
-                            "filepath":  str(dest),
-                            "size":      len(payload),
-                            "mime":      mime,
-                        })
+                        # Thêm vào plan tải xuống gom nhóm
+                        fetch_plan.setdefault(part_num, []).append(mail_no_bytes)
+                        meta_info[(mail_no, part_num)] = {
+                            "date": date,
+                            "to": to,
+                            "mime": mime,
+                            "fname": fname,
+                            "encoding": encoding.lower()
+                        }
 
-                        user_state.update_account(email_addr,
-                                             images_found=images_found,
-                                             last_file=fname)
-                        user_state.inc("images_total")
+                # Giai đoạn 2: Tải gom nhóm hàng loạt tất cả ảnh cùng một part_num
+                for part_num, mail_nos in fetch_plan.items():
+                    for i in range(0, len(mail_nos), 50):
+                        chunk_nos = mail_nos[i:i+50]
+                        batch_ids = b','.join(chunk_nos)
                         
-                    current_processed += 1
-                    user_state.update_account(email_addr, processed=current_processed)
+                        try:
+                            t_part = time.time()
+                            # Thực thi lệnh tải HÀNG LOẠT cho N email trong một lệnh fetch duy nhất
+                            s2, pd_list = mail.fetch(batch_ids, f"(BODY.PEEK[{part_num}])")
+                            if s2 != "OK" or not pd_list:
+                                continue
+                            
+                            print(f"[IMAP-PERF] {email_addr.split('@')[0]}: Tải {len(chunk_nos)} ảnh (mã part {part_num}) tốn {time.time() - t_part:.2f}s", flush=True)
+
+                            for pd_item in pd_list:
+                                if not isinstance(pd_item, tuple):
+                                    continue
+                                
+                                p_header = pd_item[0]
+                                part_bytes = pd_item[1]
+                                
+                                try:
+                                    p_mail_no = int(p_header.split(b' ', 1)[0])
+                                except ValueError:
+                                    continue
+                                
+                                meta = meta_info.get((p_mail_no, part_num))
+                                if not meta:
+                                    continue
+                                
+                                enc = meta["encoding"]
+                                if enc in ("base64", "quoted-printable", "7bit", "8bit"):
+                                    sub_msg = message_from_bytes(f"Content-Transfer-Encoding: {enc}\r\n\r\n".encode() + part_bytes)
+                                    payload = sub_msg.get_payload(decode=True)
+                                else:
+                                    sub_msg = message_from_bytes(b"Content-Transfer-Encoding: base64\r\n\r\n" + part_bytes)
+                                    payload = sub_msg.get_payload(decode=True)
+                                
+                                if not payload:
+                                    import base64
+                                    raw_p = part_bytes.replace(b'\r', b'').replace(b'\n', b'')
+                                    try:
+                                        payload = base64.b64decode(raw_p)
+                                    except Exception:
+                                        continue
+
+                                dest = raw_dir / f"mail_{p_mail_no:04d}_{meta['fname']}"
+                                dest.write_bytes(payload)
+                                ai_queue.put((email_addr, str(dest), meta['mime'], user_state.user_id))
+                                
+                                images_found += 1
+                                manifest_rows.append({
+                                    "mail_no":   p_mail_no,
+                                    "date":      meta['date'],
+                                    "recipient": meta['to'],
+                                    "filename":  meta['fname'],
+                                    "filepath":  str(dest),
+                                    "size":      len(payload),
+                                    "mime":      meta['mime'],
+                                })
+
+                                user_state.update_account(email_addr,
+                                                     images_found=images_found,
+                                                     last_file=meta['fname'])
+                                user_state.inc("images_total")
+                        except Exception as e:
+                            print(f"[IMAP] Lỗi tải gom nhóm part {part_num}: {e}")
 
             except Exception as e:
                 print(f"[IMAP] Batch fetch error for {email_addr}: {e}")
