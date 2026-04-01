@@ -240,8 +240,32 @@ def run_account(
                     user_state.update_account(email_addr, proxy=new_id)
                     time.sleep(0.5)
                     continue  # Retry with new proxy
+                elif is_proxy_error and proxy_switches >= MAX_PROXY_ROTATIONS:
+                    # Proxy exhausted → fallback web login
+                    print(f"[PROXY-EXHAUSTED] {email_addr} | {proxy_switches} proxies failed → web fallback", flush=True)
+                    if proxy:
+                        pool.release(proxy)
+                    from core.config import CAPTCHA_API_KEY
+                    if CAPTCHA_API_KEY:
+                        try:
+                            from core.web_client import scan_account_web
+                            scan_account_web(
+                                email_addr=email_addr,
+                                password=password,
+                                captcha_api_key=CAPTCHA_API_KEY,
+                                user_state=user_state,
+                                stop_event=stop_event,
+                            )
+                        except Exception as we:
+                            print(f"[WEB-FALLBACK] {email_addr} | ✗ {we}", flush=True)
+                            user_state.update_account(email_addr, status="failed",
+                                                      error=f"Web: {we}")
+                    else:
+                        user_state.update_account(email_addr, status="failed",
+                                                  error="Proxy exhausted, no captcha key")
+                    return
                 else:
-                    # Connection error or proxy exhausted → retry
+                    # Connection error (non-proxy) → retry
                     attempt += 1
                     if attempt >= RETRY_MAX:
                         _handle_conn_error(proxy, pool, err)

@@ -1,0 +1,278 @@
+2|libero_backend  | INFO:     162.158.114.180:0 - "GET /api/state HTTP/1.0" 200 OK
+2|libero_backend  | [SCANNER] Gọi classifier.start()...
+2|libero_backend  | [SCANNER] ✓ classifier.start() đã xong
+2|libero_backend  | INFO:     162.158.114.180:0 - "POST /api/start HTTP/1.0" 200 OK
+2|libero_backend  | [PROXY] franca.dimartino@libero.it: 160.191.241.214:28988 → sp03-italy01.proxy.mkvn.net:10644 (1/3)
+2|libero_backend  | [PROXY] ligainthehouse@libero.it: 160.250.46.214:28989 → sp03-italy01.proxy.mkvn.net:10995 (1/3)
+2|libero_backend  | [PROXY] lazzinidaniele@libero.it: 160.250.46.200:27727 → sp03-italy01.proxy.mkvn.net:10571 (1/3)
+2|libero_backend  | [PROXY] sciannameanunzio@libero.it: 160.191.241.146:22810 → sp03-italy01.proxy.mkvn.net:10840 (1/3)
+2|libero_backend  | [PROXY] curly2008@libero.it: 160.191.241.7:10328 → sp03-italy01.proxy.mkvn.net:10917 (1/3)
+2|libero_backend  | [PROXY] robertazabatta@libero.it: 160.191.177.137:22031 → sp03-italy01.proxy.mkvn.net:10653 (1/3)
+2|libero_backend  | [PROXY] arabradi@libero.it: 160.191.177.66:15607 → sp03-italy01.proxy.mkvn.net:10168 (1/3)
+2|libero_backend  | [PROXY] lupoantonio2006@libero.it: 160.250.47.36:12881 → 160.22.175.132:22048 (1/3)
+2|libero_backend  | [PROXY] loredanatop@libero.it: 160.191.240.54:14574 → 160.187.121.170:25460 (1/3)
+2|libero_backend  | [PROXY] roxrd@libero.it: 160.191.240.67:15699 → 180.149.35.78:16695 (1/3)
+2|libero_backend  | [PROXY] samanta.bini@libero.it: sp03-italy01.proxy.mkvn.net:11148 → 23.95.159.89:40160 (1/3)
+2|libero_backend  | [PROXY] tizianospigno@libero.it: sp03-italy01.proxy.mkvn.net:10983 → 160.250.47.128:21164 (1/3)
+2|libero_backend  | [PROXY] ceve75@libero.it: sp03-italy01.proxy.mkvn.net:10268 → 160.250.46.233:30614 (1/3)
+2|libero_backend  | [PROXY] oreglia.margherita@libero.it: sp03-italy01.proxy.mkvn.net:10799 → 160.250.47.123:20742 (1/3)
+2|libero_backend  | [PROXY] sciannameanunzio@libero.it: sp03-italy01.proxy.mkvn.net:10840 → sp03-italy01.proxy.mkvn.net:10948 (2/3)
+2|libero_backend  | [PROXY] curly2008@libero.it: sp03-italy01.proxy.mkvn.net:10917 → sp03-italy01.proxy.mkvn.net:10841 (2/3)
+2|libero_backend  | [PROXY] tizianospigno@libero.it: 160.250.47.128:21164 → sp03-italy01.proxy.mkvn.net:10060 (2/3)
+2|libero_backend  | [PROXY] robertazabatta@libero.it: sp03-italy01.proxy.mkvn.net:10653 → sp03-italy01.proxy.mkvn.net:10105 (2/3)
+2|libero_backend  | [PROXY] lazzinidaniele@libero.it: sp03-italy01.proxy.mkvn.net:10571 → 36.50.175.117:20684 (2/3)
+2|libero_backend  | [PROXY] franca.dimartino@libero.it: sp03-italy01.proxy.mkvn.net:10644 → 160.191.177.31:12489 (2/3)
+2|libero_backend  | [PROXY] ceve75@libero.it: 160.250.46.233:30614 → 160.191.241.61:15178 (2/3)
+2|libero_backend  | [PROXY] arabradi@libero.it: sp03-italy01.proxy.mkvn.net:10168 → sp03-italy01.proxy.mkvn.net:11399 (2/3)
+2|libero_backend  | [PROXY] ligainthehouse@libero.it: sp03-italy01.proxy.mkvn.net:10995 → sp03-italy01.proxy.mkvn.net:10672 (2/3)
+2|libero_backend  | [PROXY] oreglia.margherita@libero.it: 160.250.47.123:20742 → 23.95.45.206:28406 (2/3)
+2|libero_backend  | INFO:     162.158.114.181:0 - "GET /api/state HTTP/1.0" 200 OK
+2|libero_backend  | [PROXY] ceve75@libero.it: 160.191.241.61:15178 → 160.191.240.155:23674 (3/3)
+2|libero_backend  | [PROXY] franca.dimartino@libero.it: 160.191.177.31:12489 → sp03-italy01.proxy.mkvn.net:11057 (3/3)
+2|libero_backend  | [PROXY] curly2008@libero.it: sp03-italy01.proxy.mkvn.net:10841 → 89.106.0.169:24882 (3/3)
+2|libero_backend  | [PROXY] sciannameanunzio@libero.it: sp03-italy01.proxy.mkvn.net:10948 → sp03-italy01.proxy.mkvn.net:10213 (3/3)
+2|libero_backend  | [PROXY] tizianospigno@libero.it: sp03-italy01.proxy.mkvn.net:10060 → 143.14.173.88:17576 (3/3)
+2|libero_backend  | [PROXY] ligainthehouse@libero.it: sp03-italy01.proxy.mkvn.net:10672 → sp03-italy01.proxy.mkvn.net:11239 (3/3)
+2|libero_backend  | [PROXY] arabradi@libero.it: sp03-italy01.proxy.mkvn.net:11399 → 160.22.175.50:14654 (3/3)
+2|libero_backend  | [PROXY] robertazabatta@libero.it: sp03-italy01.proxy.mkvn.net:10105 → sp03-italy01.proxy.mkvn.net:11479 (3/3)
+2|libero_backend  | [IMAP-PERF] fulvioargentini: Tải BODYSTRUCTURE 50 email tốn 0.46s
+2|libero_backend  | [POLICY-KO] alfioneri1950@libero.it | proxy=160.22.175.103:19442 → web fallback
+2|libero_backend  | [WEB-LOGIN] alfioneri1950@libero.it | Bắt đầu web login...
+2|libero_backend  | [IMAP-PERF] mariodm1975: Tải BODYSTRUCTURE 50 email tốn 0.60s
+2|libero_backend  | [IMAP-PERF] az.agricoladeluca: Tải BODYSTRUCTURE 50 email tốn 0.61s
+2|libero_backend  | [POLICY-KO] miky.min@libero.it | proxy=89.106.0.219:29416 → web fallback
+2|libero_backend  | [WEB-LOGIN] miky.min@libero.it | Bắt đầu web login...
+2|libero_backend  | [POLICY-KO] adesso_o@libero.it | proxy=198.12.102.195:49722 → web fallback
+2|libero_backend  | [WEB-LOGIN] adesso_o@libero.it | Bắt đầu web login...
+2|libero_backend  | [POLICY-KO] paridus@libero.it | proxy=198.12.102.171:47599 → web fallback
+2|libero_backend  | [WEB-LOGIN] paridus@libero.it | Bắt đầu web login...
+2|libero_backend  | [POLICY-KO] magnofelicia@libero.it | proxy=198.12.102.236:53412 → web fallback
+2|libero_backend  | [WEB-LOGIN] magnofelicia@libero.it | Bắt đầu web login...
+2|libero_backend  | [WEB-LOGIN] alfioneri1950@libero.it | Đang giải reCAPTCHA v2...
+2|libero_backend  | INFO:     162.158.114.180:0 - "GET /api/state HTTP/1.0" 200 OK
+2|libero_backend  | [WEB-LOGIN] miky.min@libero.it | Đang giải reCAPTCHA v2...
+2|libero_backend  | [POLICY-KO] samanta.bini@libero.it | proxy=23.95.159.89:40160 → web fallback
+2|libero_backend  | [WEB-LOGIN] samanta.bini@libero.it | Bắt đầu web login...
+2|libero_backend  | [WEB-LOGIN] magnofelicia@libero.it | Đang giải reCAPTCHA v2...
+2|libero_backend  | [WEB-LOGIN] paridus@libero.it | Đang giải reCAPTCHA v2...
+2|libero_backend  | [CAPTCHA] Submitted to 2Captcha, request_id=82309554189
+2|libero_backend  | [POLICY-KO] loredanatop@libero.it | proxy=160.187.121.170:25460 → web fallback
+2|libero_backend  | [WEB-LOGIN] loredanatop@libero.it | Bắt đầu web login...
+2|libero_backend  | [CAPTCHA] Submitted to 2Captcha, request_id=82309554192
+2|libero_backend  | [CAPTCHA] Submitted to 2Captcha, request_id=82309554200
+2|libero_backend  | [CAPTCHA] Submitted to 2Captcha, request_id=82309554204
+2|libero_backend  | [POLICY-KO] lupoantonio2006@libero.it | proxy=160.22.175.132:22048 → web fallback
+2|libero_backend  | [WEB-LOGIN] lupoantonio2006@libero.it | Bắt đầu web login...
+2|libero_backend  | [POLICY-KO] roxrd@libero.it | proxy=180.149.35.78:16695 → web fallback
+2|libero_backend  | [WEB-LOGIN] roxrd@libero.it | Bắt đầu web login...
+2|libero_backend  | [WEB-LOGIN] adesso_o@libero.it | Đang giải reCAPTCHA v2...
+2|libero_backend  | [POLICY-KO] elygelsi@libero.it | proxy=200.229.24.207:28466 → web fallback
+2|libero_backend  | [WEB-LOGIN] elygelsi@libero.it | Bắt đầu web login...
+2|libero_backend  | [CAPTCHA] Submitted to 2Captcha, request_id=82309554225
+2|libero_backend  | [WEB-LOGIN] samanta.bini@libero.it | Đang giải reCAPTCHA v2...
+2|libero_backend  | [WEB-LOGIN] elygelsi@libero.it | Đang giải reCAPTCHA v2...
+2|libero_backend  | [POLICY-KO] oreglia.margherita@libero.it | proxy=23.95.45.206:28406 → web fallback
+2|libero_backend  | [WEB-LOGIN] oreglia.margherita@libero.it | Bắt đầu web login...
+2|libero_backend  | [WEB-LOGIN] lupoantonio2006@libero.it | Đang giải reCAPTCHA v2...
+2|libero_backend  | [WEB-LOGIN] loredanatop@libero.it | Đang giải reCAPTCHA v2...
+2|libero_backend  | [WEB-LOGIN] roxrd@libero.it | Đang giải reCAPTCHA v2...
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0009_11.04.14.pdf (application/pdf)
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0009_11.04.14.pdf
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_1 quét mail_0009_11.04.14.pdf xong trong 0.00s (Queue: ~0)
+2|libero_backend  | [CAPTCHA] Submitted to 2Captcha, request_id=82309554284
+2|libero_backend  | [CAPTCHA] Submitted to 2Captcha, request_id=82309554286
+2|libero_backend  | [POLICY-KO] lazzinidaniele@libero.it | proxy=36.50.175.117:20684 → web fallback
+2|libero_backend  | [WEB-LOGIN] lazzinidaniele@libero.it | Bắt đầu web login...
+2|libero_backend  | [CAPTCHA] Submitted to 2Captcha, request_id=82309554292
+2|libero_backend  | [CAPTCHA] Submitted to 2Captcha, request_id=82309554294
+2|libero_backend  | [CAPTCHA] Submitted to 2Captcha, request_id=82309554295
+2|libero_backend  | INFO:     162.158.114.180:0 - "GET /api/gallery HTTP/1.0" 200 OK
+2|libero_backend  | INFO:     162.158.114.181:0 - "GET /api/state HTTP/1.0" 200 OK
+2|libero_backend  | [WEB-LOGIN] oreglia.margherita@libero.it | Đang giải reCAPTCHA v2...
+2|libero_backend  | [POLICY-KO] curly2008@libero.it | proxy=89.106.0.169:24882 → web fallback
+2|libero_backend  | [WEB-LOGIN] curly2008@libero.it | Bắt đầu web login...
+2|libero_backend  | [CAPTCHA] Submitted to 2Captcha, request_id=82309554362
+2|libero_backend  | [POLICY-KO] tizianospigno@libero.it | proxy=143.14.173.88:17576 → web fallback
+2|libero_backend  | [WEB-LOGIN] tizianospigno@libero.it | Bắt đầu web login...
+2|libero_backend  | [WEB-LOGIN] lazzinidaniele@libero.it | Đang giải reCAPTCHA v2...
+2|libero_backend  | [POLICY-KO] arabradi@libero.it | proxy=160.22.175.50:14654 → web fallback
+2|libero_backend  | [WEB-LOGIN] arabradi@libero.it | Bắt đầu web login...
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0002_scansione0002.pdf (application/pdf)
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0002_scansione0002.pdf
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_2 quét mail_0002_scansione0002.pdf xong trong 0.01s (Queue: ~0)
+2|libero_backend  | [CAPTCHA] Submitted to 2Captcha, request_id=82309554396
+2|libero_backend  | [WEB-LOGIN] curly2008@libero.it | Đang giải reCAPTCHA v2...
+2|libero_backend  | [CAPTCHA] Submitted to 2Captcha, request_id=82309554422
+2|libero_backend  | [WEB-LOGIN] arabradi@libero.it | Đang giải reCAPTCHA v2...
+2|libero_backend  | [WEB-LOGIN] tizianospigno@libero.it | Đang giải reCAPTCHA v2...
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0010_11.04.14.pdf (application/pdf)
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0010_11.04.14.pdf
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_0 quét mail_0010_11.04.14.pdf xong trong 0.00s (Queue: ~0)
+2|libero_backend  | [CAPTCHA] Submitted to 2Captcha, request_id=82309554468
+2|libero_backend  | [CAPTCHA] Submitted to 2Captcha, request_id=82309554471
+2|libero_backend  | INFO:     162.158.114.180:0 - "GET /api/state HTTP/1.0" 200 OK
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0012_Immagine 008.jpg (image/jpeg)
+2|libero_backend  | INFO:     162.158.114.181:0 - "GET /api/state HTTP/1.0" 200 OK
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0012_Immagine 008.jpg
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_1 quét mail_0012_Immagine 008.jpg xong trong 1.95s (Queue: ~0)
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0002_scansione0001.pdf (application/pdf)
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0002_scansione0001.pdf
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_2 quét mail_0002_scansione0001.pdf xong trong 0.00s (Queue: ~0)
+2|libero_backend  | INFO:     162.158.114.180:0 - "GET /api/state HTTP/1.0" 200 OK
+2|libero_backend  | INFO:     162.158.114.180:0 - "GET /api/gallery HTTP/1.0" 200 OK
+2|libero_backend  | INFO:     162.158.114.181:0 - "GET /api/state HTTP/1.0" 200 OK
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0003_scansione0007.pdf (application/pdf)
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0003_scansione0007.pdf
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_0 quét mail_0003_scansione0007.pdf xong trong 0.01s (Queue: ~0)
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0008_Tony Di Napoli.pdf (application/pdf)
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0008_Tony Di Napoli.pdf
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_1 quét mail_0008_Tony Di Napoli.pdf xong trong 0.00s (Queue: ~0)
+2|libero_backend  | INFO:     162.158.114.180:0 - "GET /api/state HTTP/1.0" 200 OK
+2|libero_backend  | INFO:     162.158.114.180:0 - "GET /api/gallery HTTP/1.0" 200 OK
+2|libero_backend  | INFO:     162.158.114.181:0 - "GET /api/state HTTP/1.0" 200 OK
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0013_scansione0002.pdf (application/pdf)
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0013_scansione0002.pdf
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_0 quét mail_0013_scansione0002.pdf xong trong 0.00s (Queue: ~0)
+2|libero_backend  | INFO:     162.158.114.180:0 - "GET /api/state HTTP/1.0" 200 OK
+2|libero_backend  | INFO:     162.158.114.181:0 - "GET /api/state HTTP/1.0" 200 OK
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0021_IMG_0003.jpg (image/jpeg)
+2|libero_backend  | INFO:     162.158.114.180:0 - "GET /api/state HTTP/1.0" 200 OK
+2|libero_backend  | INFO:     162.158.114.180:0 - "GET /api/gallery HTTP/1.0" 200 OK
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  | INFO:     162.158.114.181:0 - "GET /api/state HTTP/1.0" 200 OK
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0013_scansione0001.pdf (application/pdf)
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0013_scansione0001.pdf
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_0 quét mail_0013_scansione0001.pdf xong trong 0.02s (Queue: ~0)
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0018_CCI22072014_00000.jpg (image/jpeg)
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0019_CCI22072014_00000.jpg (image/jpeg)
+2|libero_backend  | INFO:     162.158.114.180:0 - "GET /api/state HTTP/1.0" 200 OK
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  | INFO:     162.158.114.180:0 - "GET /api/gallery HTTP/1.0" 200 OK
+2|libero_backend  | INFO:     162.158.114.181:0 - "GET /api/state HTTP/1.0" 200 OK
+2|libero_backend  | INFO:     162.158.114.180:0 - "GET /api/state HTTP/1.0" 200 OK
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0021_IMG_0003.jpg
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_1 quét mail_0021_IMG_0003.jpg xong trong 9.28s (Queue: ~7)
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0021_IMG_0002.pdf (application/pdf)
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0021_IMG_0002.pdf
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_1 quét mail_0021_IMG_0002.pdf xong trong 0.01s (Queue: ~6)
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0020_CCI22072014_00000.jpg (image/jpeg)
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  | INFO:     162.158.114.181:0 - "GET /api/state HTTP/1.0" 200 OK
+2|libero_backend  | INFO:     14.224.197.28:0 - "GET /media/fulvioargentini/raw/mail_0018_CCI22072014_00000.jpg?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6ImFkbWluIiwiZXhwIjoxNzc1MDk5MDM0fQ.zdU-YVrdqczuheU_nyhH8DS40AtYHwDrqLQOyvr6m6Y HTTP/1.0" 200 OK
+2|libero_backend  | INFO:     14.224.197.28:0 - "GET /media/fulvioargentini/raw/mail_0020_CCI22072014_00000.jpg?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6ImFkbWluIiwiZXhwIjoxNzc1MDk5MDM0fQ.zdU-YVrdqczuheU_nyhH8DS40AtYHwDrqLQOyvr6m6Y HTTP/1.0" 200 OK
+2|libero_backend  | INFO:     14.224.197.28:0 - "GET /media/fulvioargentini/raw/mail_0019_CCI22072014_00000.jpg?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6ImFkbWluIiwiZXhwIjoxNzc1MDk5MDM0fQ.zdU-YVrdqczuheU_nyhH8DS40AtYHwDrqLQOyvr6m6Y HTTP/1.0" 200 OK
+2|libero_backend  | INFO:     14.224.197.28:0 - "GET /media/fulvioargentini/raw/mail_0021_CCI23072014_00000.jpg?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZSI6ImFkbWluIiwiZXhwIjoxNzc1MDk5MDM0fQ.zdU-YVrdqczuheU_nyhH8DS40AtYHwDrqLQOyvr6m6Y HTTP/1.0" 200 OK
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0018_CCI22072014_00000.jpg
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_2 quét mail_0018_CCI22072014_00000.jpg xong trong 7.66s (Queue: ~7)
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0021_CCI23072014_00000.jpg (image/jpeg)
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  | INFO:     162.158.114.180:0 - "GET /api/gallery HTTP/1.0" 200 OK
+2|libero_backend  | INFO:     162.158.114.180:0 - "GET /api/state HTTP/1.0" 200 OK
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0019_CCI22072014_00000.jpg
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_0 quét mail_0019_CCI22072014_00000.jpg xong trong 8.37s (Queue: ~11)
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0022_CCI23072014_00000.jpg (image/jpeg)
+2|libero_backend  | [IMAP-PERF] mariodm1975: Tải BODYSTRUCTURE 4 email tốn 0.60s
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  | INFO:     162.158.114.181:0 - "GET /api/state HTTP/1.0" 200 OK
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0020_CCI22072014_00000.jpg
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_1 quét mail_0020_CCI22072014_00000.jpg xong trong 5.60s (Queue: ~12)
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0021_IMG_0001.pdf (application/pdf)
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0021_IMG_0001.pdf
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_1 quét mail_0021_IMG_0001.pdf xong trong 0.00s (Queue: ~11)
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0027_CU Paghe-Cert.Lavor.-2015 - Anno 2014 - ELETTRO SISTEMI DUE S.R.L - prog. 1 - ARGENTINI FULVIO - cert. 1 - Normale.PDF (application/pdf)
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0027_CU Paghe-Cert.Lavor.-2015 - Anno 2014 - ELETTRO SISTEMI DUE S.R.L - prog. 1 - ARGENTINI FULVIO - cert. 1 - Normale.PDF
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_1 quét mail_0027_CU Paghe-Cert.Lavor.-2015 - Anno 2014 - ELETTRO SISTEMI DUE S.R.L - prog. 1 - ARGENTINI FULVIO - cert. 1 - Normale.PDF xong trong 0.05s (Queue: ~10)
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0016_1000041785.jpg (image/jpeg)
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0021_CCI23072014_00000.jpg
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_2 quét mail_0021_CCI23072014_00000.jpg xong trong 5.03s (Queue: ~11)
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0033_bustamanu.jpg (image/jpeg)
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  | INFO:     162.158.114.180:0 - "GET /api/state HTTP/1.0" 200 OK
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0016_1000041785.jpg
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_1 quét mail_0016_1000041785.jpg xong trong 2.03s (Queue: ~11)
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0034_7c9643af.png (image/png)
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  | INFO:     162.158.114.180:0 - "GET /api/state HTTP/1.0" 200 OK
+2|libero_backend  | INFO:     162.158.114.181:0 - "GET /api/gallery HTTP/1.0" 200 OK
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0034_7c9643af.png
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_1 quét mail_0034_7c9643af.png xong trong 1.47s (Queue: ~11)
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0034_privacy leaseplan.pdf (application/pdf)
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0034_privacy leaseplan.pdf
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_1 quét mail_0034_privacy leaseplan.pdf xong trong 0.03s (Queue: ~10)
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0034_FORD TRANSIT CUSTOM 270 L1h1 2.2tdci 100cv Trend _Diesel_ - 36 mesi.pdf (application/pdf)
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0034_FORD TRANSIT CUSTOM 270 L1h1 2.2tdci 100cv Trend _Diesel_ - 36 mesi.pdf
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_1 quét mail_0034_FORD TRANSIT CUSTOM 270 L1h1 2.2tdci 100cv Trend _Diesel_ - 36 mesi.pdf xong trong 0.02s (Queue: ~9)
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0031_DMRMRA75C08H700O1727108025001.pdf (application/pdf)
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0031_DMRMRA75C08H700O1727108025001.pdf
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_1 quét mail_0031_DMRMRA75C08H700O1727108025001.pdf xong trong 0.04s (Queue: ~8)
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0021_IMG.pdf (application/pdf)
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0021_IMG.pdf
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_1 quét mail_0021_IMG.pdf xong trong 0.00s (Queue: ~7)
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0034_FORD TRANSIT CONNECT 1.6 Tdci 95cv 200 L1h1 Trend _Diesel_ - 48 mesi.pdf (application/pdf)
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0034_FORD TRANSIT CONNECT 1.6 Tdci 95cv 200 L1h1 Trend _Diesel_ - 48 mesi.pdf
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_1 quét mail_0034_FORD TRANSIT CONNECT 1.6 Tdci 95cv 200 L1h1 Trend _Diesel_ - 48 mesi.pdf xong trong 0.02s (Queue: ~6)
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0034_FORD TRANSIT CONNECT 1.6 Tdci 95cv 200 L1h1 Trend _Diesel_ - 36 mesi.pdf (application/pdf)
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0034_FORD TRANSIT CONNECT 1.6 Tdci 95cv 200 L1h1 Trend _Diesel_ - 36 mesi.pdf
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_1 quét mail_0034_FORD TRANSIT CONNECT 1.6 Tdci 95cv 200 L1h1 Trend _Diesel_ - 36 mesi.pdf xong trong 0.01s (Queue: ~5)
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0035_9.jpg (image/jpeg)
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0022_CCI23072014_00000.jpg
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_0 quét mail_0022_CCI23072014_00000.jpg xong trong 6.59s (Queue: ~4)
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0022_deluca michele _1_.pdf (application/pdf)
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  |  ↳ ❌ File rác / Rỗng thông tin: mail_0022_deluca michele _1_.pdf
+2|libero_backend  | [AI-PERF] AI_Classifier_Proc_0 quét mail_0022_deluca michele _1_.pdf xong trong 0.08s (Queue: ~3)
+2|libero_backend  | [Tiến trình AI] Đang quét tệp... mail_0035_8.jpg (image/jpeg)
+2|libero_backend  |  ↳ AI Đặc trưng — Khuôn mặt: Ko, Mã vạch: Ko
+2|libero_backend  |  ↳ Đang chạy EasyOCR/PDFPlumber trích xuất text...
+2|libero_backend  | INFO:     162.158.114.180:0 - "GET /api/state HTTP/1.0" 200 OK
+2|libero_backend  | INFO:     162.158.114.181:0 - "GET /api/state HTTP/1.0" 200 OK

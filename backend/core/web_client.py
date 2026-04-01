@@ -369,7 +369,7 @@ def scan_account_web(
     raw_dir.mkdir(parents=True, exist_ok=True)
 
     user_state.update_account(email_addr,
-                              status="running",
+                              status="scanning",
                               error="Web login (giải CAPTCHA)...")
 
     client = LiberoWebClient(captcha_api_key, proxy=proxy_dict)
