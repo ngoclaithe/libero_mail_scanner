@@ -24,11 +24,15 @@ env/
 .pytest_cache/
 
 # User data & databases
-backend/libero.db
-backend/accounts.csv
-backend/accounts.txt
+backend/*.db
+backend/accounts*.csv
+backend/accounts*.txt
+backend/proxies*.txt
+backend/attachments/
 backend/output/
 backend/downloads/
+backend/*.log
+backend/log_*.txt
 
 # ── Frontend (Node.js/React) ──
 frontend/node_modules/
