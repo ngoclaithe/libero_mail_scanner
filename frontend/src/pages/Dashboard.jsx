@@ -451,6 +451,37 @@ function GalleryTab({ gallery }) {
     setIsDeleting(false);
   };
 
+  const [isDownloadingAll, setIsDownloadingAll] = useState(false);
+
+  const handleDownloadAllValid = async () => {
+    // Thu thập tất cả path documents từ mọi email
+    const allValidPaths = [];
+    Object.entries(gallery).forEach(([slug, info]) => {
+      (info.documents || []).forEach(f => {
+        allValidPaths.push(`${slug}/documents/${f}`);
+      });
+    });
+    if (allValidPaths.length === 0) {
+      alert('Không có ảnh hợp lệ nào để tải!');
+      return;
+    }
+    setIsDownloadingAll(true);
+    try {
+      const blob = await apiDownloadGallery(allValidPaths);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `all_valid_documents.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Tải xuống thất bại!');
+    }
+    setIsDownloadingAll(false);
+  };
+
   // Build email list with counts
   const emailData = useMemo(() => {
     return Object.entries(gallery).map(([slug, info]) => {
@@ -616,12 +647,21 @@ function GalleryTab({ gallery }) {
             <div className="gal-layout">
               {/* ── Sidebar: Email List ── */}
               <div className="gal-sidebar">
-                <div className="gal-sidebar-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="gal-sidebar-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
                   <span>📧 Tài khoản Email</span>
-                  <button onClick={handleClearAll} disabled={isDeleting} style={{
-                    background: 'var(--red)', color: 'white', border: 'none', borderRadius: '4px',
-                    padding: '4px 8px', fontSize: '12px', cursor: 'pointer'
-                  }} title="Xóa toàn bộ CSDL Ảnh">🗑️ Xóa Sạch DB</button>
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    <button onClick={handleDownloadAllValid} disabled={isDownloadingAll} style={{
+                      background: 'var(--accent)', color: 'white', border: 'none', borderRadius: '4px',
+                      padding: '4px 8px', fontSize: '12px', cursor: 'pointer', opacity: isDownloadingAll ? 0.6 : 1
+                    }} title="Tải toàn bộ ảnh hợp lệ (documents)">
+                      <Download size={12} style={{ verticalAlign: 'middle', marginRight: '3px' }} />
+                      {isDownloadingAll ? 'Đang nén...' : 'Tải Hợp Lệ'}
+                    </button>
+                    <button onClick={handleClearAll} disabled={isDeleting} style={{
+                      background: 'var(--red)', color: 'white', border: 'none', borderRadius: '4px',
+                      padding: '4px 8px', fontSize: '12px', cursor: 'pointer'
+                    }} title="Xóa toàn bộ CSDL Ảnh">🗑️ Xóa DB</button>
+                  </div>
                 </div>
                 <div className="gal-sidebar-list">
                   {emailData.map(e => (
