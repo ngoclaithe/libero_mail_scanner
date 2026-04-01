@@ -155,8 +155,6 @@ def run_account(
                 err = str(e)
                 if "policy" in err.lower() and "ko" in err.lower():
                     print(f"[POLICY-KO] {email_addr} | proxy={proxy_label} → web fallback", flush=True)
-                    if proxy:
-                        pool.release(proxy)
                     from core.config import CAPTCHA_API_KEY
                     if CAPTCHA_API_KEY:
                         try:
@@ -167,15 +165,19 @@ def run_account(
                                 captcha_api_key=CAPTCHA_API_KEY,
                                 user_state=user_state,
                                 stop_event=stop_event,
+                                proxy_dict=proxy,
                             )
                         except Exception as we:
                             print(f"[WEB-FALLBACK] {email_addr} | ✗ {we}", flush=True)
-                            user_state.update_account(email_addr, status="failed",
-                                                      error=f"Web: {we}")
+                            user_state.update_account(email_addr, status="failed", error=f"Web: {we}")
+                        finally:
+                            if proxy:
+                                pool.release(proxy)
                     else:
                         print(f"[POLICY-KO] {email_addr} | No CAPTCHA_API_KEY → skip", flush=True)
-                        user_state.update_account(email_addr, status="failed",
-                                                  error="Policy KO, no captcha key")
+                        user_state.update_account(email_addr, status="failed", error="Policy KO, no captcha key")
+                        if proxy:
+                            pool.release(proxy)
                     return
                 else:
                     _handle_auth_error(proxy, pool, err)
@@ -205,8 +207,6 @@ def run_account(
                     continue
                 elif is_proxy_error and proxy_switches >= MAX_PROXY_ROTATIONS:
                     print(f"[PROXY-EXHAUSTED] {email_addr} | {proxy_switches} proxies failed → web fallback", flush=True)
-                    if proxy:
-                        pool.release(proxy)
                     from core.config import CAPTCHA_API_KEY
                     if CAPTCHA_API_KEY:
                         try:
@@ -217,14 +217,18 @@ def run_account(
                                 captcha_api_key=CAPTCHA_API_KEY,
                                 user_state=user_state,
                                 stop_event=stop_event,
+                                proxy_dict=proxy,
                             )
                         except Exception as we:
                             print(f"[WEB-FALLBACK] {email_addr} | ✗ {we}", flush=True)
-                            user_state.update_account(email_addr, status="failed",
-                                                      error=f"Web: {we}")
+                            user_state.update_account(email_addr, status="failed", error=f"Web: {we}")
+                        finally:
+                            if proxy:
+                                pool.release(proxy)
                     else:
-                        user_state.update_account(email_addr, status="failed",
-                                                  error="Proxy exhausted, no captcha key")
+                        user_state.update_account(email_addr, status="failed", error="Proxy exhausted, no captcha key")
+                        if proxy:
+                            pool.release(proxy)
                     return
                 else:
                     attempt += 1

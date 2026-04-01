@@ -15,18 +15,24 @@ class LiberoWebClient:
     BASE_LOGIN = "https://login.libero.it"
     BASE_MAIL  = "https://mail1.libero.it"
 
-    def __init__(self, captcha_api_key: str, proxy: Optional[dict] = None):
+    def __init__(self, captcha_api_key: str, proxy=None):
         self.captcha_api_key = captcha_api_key
         self.session = requests.Session()
+        self.email = None
+        self.ox_session = None
+        
+        if proxy:
+            import urllib.parse
+            user = urllib.parse.quote(proxy.username)
+            pwd = urllib.parse.quote(proxy.password)
+            proxy_url = f"http://{user}:{pwd}@{proxy.host}:{proxy.port}"
+            self.session.proxies = {"http": proxy_url, "https": proxy_url}
+            
         self.session.headers.update({
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                           "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8",
         })
-        if proxy:
-            self.session.proxies = proxy
-        self.ox_session = None
-        self.email = None
 
     def login(self, email: str, password: str) -> bool:
         self.email = email
