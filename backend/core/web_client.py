@@ -83,47 +83,109 @@ class LiberoWebClient:
         if resp.status_code != 200:
             raise WebLoginError(f"Login step1 failed: HTTP {resp.status_code}")
 
-        # Step 3: POST password (step 2 of login form)
+        # Step 3: POST password to /keycheck.php (NOT /logincheck.php!)
+        # Libero requires browser fingerprint fields alongside credentials
         resp2 = self.session.post(
-            f"{self.BASE_LOGIN}/logincheck.php",
+            f"{self.BASE_LOGIN}/keycheck.php",
             data={
                 "LOGINID": email,
                 "PASSWORD": password,
-                "SERVICE_ID": "webmail",
-                "RET_URL": f"{self.BASE_MAIL}/appsuite/api/login?action=liberoLogin",
+                "fullFingerprint[useragent]": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "fullFingerprint[language]": "",
+                "fullFingerprint[color]": "32",
+                "fullFingerprint[screen]": "1080x1920",
+                "fullFingerprint[timezone]": "-60",
+                "fullFingerprint[sessionstorage]": "true",
+                "fullFingerprint[localstorage]": "true",
+                "fullFingerprint[cpu]": "undefined",
+                "fullFingerprint[platform]": "Win32",
+                "fullFingerprint[donottrack]": "",
+                "fullFingerprint[plugin]": "PDF Viewer::Portable Document Format::application/pdf~pdf,text/pdf~pdf",
+                "fullFingerprint[canvas]": "",
+                "hashFingerprint": "2554233846",
+                "adblock": "",
             },
             allow_redirects=True,
             timeout=30,
         )
         print(f"[WEB-LOGIN] {email} | Step2 status={resp2.status_code} url={resp2.url}", flush=True)
 
-        # Check for OX session in response or cookies
-        self._extract_ox_session(resp2)
+        # Step 4: After keycheck.php → 302 → inters_adv.phtml (interstitial ad page)
+        # The interstitial page has ret_url param. We need to follow the SSO chain:
+        #   inters_adv.phtml → /?service_id=appsuite&ret_url=... → mail1.libero.it/appsuite/api/login
+        
+        # If we landed on inters_adv.phtml, extract ret_url and follow manually
+        if "inters_adv" in resp2.url or resp2.status_code == 200:
+            # Extract ret_url from the page or from URL params
+            ret_url = None
+            ret_m = re.search(r'ret_url=([^&\s"\']+)', resp2.url)
+            if ret_m:
+                from urllib.parse import unquote
+                ret_url = unquote(ret_m.group(1))
+            
+            if not ret_url:
+                # Try to find it in the page body
+                ret_m = re.search(r'ret_url[=:]\s*["\']?([^"\'&\s>]+)', resp2.text or "")
+                if ret_m:
+                    from urllib.parse import unquote
+                    ret_url = unquote(ret_m.group(1))
+            
+            if not ret_url:
+                ret_url = f"{self.BASE_MAIL}/appsuite/api/login?action=liberoLogin"
+            
+            print(f"[WEB-LOGIN] {email} | Step3 interstitial → following ret_url", flush=True)
 
-        if not self.ox_session:
-            # Try to extract from final redirect URL
-            if "session=" in resp2.url:
-                m = re.search(r'session=([^&]+)', resp2.url)
-                if m:
-                    self.ox_session = m.group(1)
+        # Step 5: Navigate to /?service_id=appsuite to trigger SSO redirect chain
+        # This sets up the SSO cookies for mail1.libero.it
+        resp3 = self.session.get(
+            f"{self.BASE_LOGIN}/",
+            params={
+                "service_id": "appsuite",
+                "ret_url": f"{self.BASE_MAIL}/appsuite/api/login?action=liberoLogin",
+            },
+            allow_redirects=True,
+            timeout=30,
+        )
+        print(f"[WEB-LOGIN] {email} | Step4 SSO status={resp3.status_code} url={resp3.url}", flush=True)
 
+        # Step 6: Follow the OX login endpoint — this should give us the session
+        # mail1.libero.it/appsuite/api/login?action=liberoLogin → 302 with ssonc
+        resp4 = self.session.get(
+            f"{self.BASE_MAIL}/appsuite/api/login",
+            params={"action": "liberoLogin"},
+            allow_redirects=True,
+            timeout=30,
+        )
+        print(f"[WEB-LOGIN] {email} | Step5 OX login status={resp4.status_code} url={resp4.url}", flush=True)
+        
+        # Extract OX session from the response chain
+        self._extract_ox_session(resp4)
+        
+        # Also check resp3 in case session was set there
         if not self.ox_session:
-            # Try calling the login API directly with cookies already set
-            resp3 = self.session.get(
-                f"{self.BASE_MAIL}/appsuite/api/login?action=liberoLogin",
-                allow_redirects=True,
-                timeout=15,
-            )
             self._extract_ox_session(resp3)
+        
+        # Check all redirect history for session token
+        if not self.ox_session:
+            for r in resp4.history + resp3.history:
+                if "session=" in r.url:
+                    m = re.search(r'session=([^&]+)', r.url)
+                    if m:
+                        self.ox_session = m.group(1)
+                        break
+                self._extract_ox_session(r)
+                if self.ox_session:
+                    break
 
         if self.ox_session:
             print(f"[WEB-LOGIN] {email} | ✓ Login OK! session={self.ox_session[:16]}...", flush=True)
             return True
         else:
-            # Dump response for debug
-            body_preview = resp2.text[:500] if resp2.text else "(empty)"
+            body_preview = resp4.text[:500] if resp4.text else "(empty)"
             print(f"[WEB-LOGIN] {email} | ✗ Không tìm thấy OX session", flush=True)
-            print(f"[WEB-LOGIN] {email} | Response body: {body_preview}", flush=True)
+            print(f"[WEB-LOGIN] {email} | Final URL: {resp4.url}", flush=True)
+            print(f"[WEB-LOGIN] {email} | History: {[r.url for r in resp4.history]}", flush=True)
+            print(f"[WEB-LOGIN] {email} | Body: {body_preview}", flush=True)
             raise WebLoginError(f"Cannot extract OX session after login")
 
     def _extract_ox_session(self, resp):
