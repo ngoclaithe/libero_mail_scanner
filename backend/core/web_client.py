@@ -18,6 +18,11 @@ class LiberoWebClient:
     def __init__(self, captcha_api_key: str, proxy=None):
         self.captcha_api_key = captcha_api_key
         self.session = requests.Session()
+        
+        adapter = requests.adapters.HTTPAdapter(pool_connections=100, pool_maxsize=100)
+        self.session.mount('http://', adapter)
+        self.session.mount('https://', adapter)
+        
         self.email = None
         self.ox_session = None
         
@@ -452,7 +457,11 @@ def scan_account_web(
             return local_rows
 
         processed_count = 0
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        
+        running_accounts = len([a for a in user_state.accounts.values() if a.get("status") == "running"])
+        max_w = min(50, max(5, 100 // max(1, running_accounts)))
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_w) as executor:
             futures = []
             for idx, mail_meta in enumerate(mails):
                 futures.append(executor.submit(_process_single_mail, idx, mail_meta))
