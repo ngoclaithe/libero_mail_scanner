@@ -209,12 +209,32 @@ def run_account(
                     return
             except Exception as e:
                 err = str(e)
-                attempt += 1
-                if attempt >= RETRY_MAX:
-                    _handle_conn_error(proxy, pool, err)
-                    user_state.update_account(email_addr, status="failed", error=err)
-                    return
-                time.sleep(2 ** attempt)
+                # ── Proxy lỗi (502/407/connection refused) → đổi proxy ──
+                is_proxy_error = proxy and any(k in err.lower() for k in [
+                    "proxy rejected", "502", "407", "bad gateway",
+                    "connection refused", "connect tunnel",
+                ])
+                if is_proxy_error and proxy_switches < max_proxy_switches:
+                    old_proxy_id = proxy.id
+                    pool.mark_dead(proxy, err)
+                    pool.release(proxy)
+                    proxy_switches += 1
+                    proxy = pool.acquire(email_addr)
+                    new_proxy_id = proxy.id if proxy else "direct"
+                    print(f"[PROXY-ROTATE] {email_addr}: Proxy lỗi ({old_proxy_id}) → đổi sang {new_proxy_id} (lần {proxy_switches}/{max_proxy_switches})", flush=True)
+                    user_state.update_account(email_addr,
+                                              proxy=new_proxy_id,
+                                              error=f"Proxy lỗi → đổi proxy ({proxy_switches}/{max_proxy_switches})")
+                    time.sleep(1)
+                    attempt = 0
+                    continue
+                else:
+                    attempt += 1
+                    if attempt >= RETRY_MAX:
+                        _handle_conn_error(proxy, pool, err)
+                        user_state.update_account(email_addr, status="failed", error=err)
+                        return
+                    time.sleep(2 ** attempt)
 
         # ── Select outbox ─────────────────────────────────────
         status, _ = mail.select(f'"{SENT_FOLDER}"')
