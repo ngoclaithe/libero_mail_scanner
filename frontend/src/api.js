@@ -193,3 +193,24 @@ export async function apiSaveProxies(proxies) {
   }
   return res.json();
 }
+
+export async function apiGetCaptchaKey() {
+  const res = await fetch(`${API_URL}/api/captcha-key`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error('Failed to fetch captcha key');
+  return res.json();
+}
+
+export async function apiSetCaptchaKey(api_key) {
+  const res = await fetch(`${API_URL}/api/captcha-key`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ api_key }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || 'Set key failed');
+  }
+  return res.json();
+}

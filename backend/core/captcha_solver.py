@@ -1,6 +1,6 @@
 """
-2Captcha integration for solving reCAPTCHA v2.
-API docs: https://2captcha.com/2captcha-api
+Capsolver integration for solving reCAPTCHA v2.
+API docs: https://docs.capsolver.com/
 """
 
 import time
@@ -16,59 +16,72 @@ def solve_recaptcha_v2(api_key: str,
                        page_url: str = RECAPTCHA_PAGE_URL,
                        timeout: int = 120) -> str:
     """
-    Submit reCAPTCHA v2 to 2Captcha and poll until solved.
+    Submit reCAPTCHA v2 to Capsolver and poll until solved.
     Returns the g-recaptcha-response token string.
     """
     # 1. Submit task
-    resp = requests.post("http://2captcha.com/in.php", data={
-        "key": api_key,
-        "method": "userrecaptcha",
-        "googlekey": site_key,
-        "pageurl": page_url,
-        "json": 1,
-    }, timeout=30)
-    data = resp.json()
+    try:
+        resp = requests.post("https://api.capsolver.com/createTask", json={
+            "clientKey": api_key,
+            "task": {
+                "type": "ReCaptchaV2TaskProxyless",
+                "websiteURL": page_url,
+                "websiteKey": site_key
+            }
+        }, timeout=30)
+        data = resp.json()
+    except Exception as e:
+        raise CaptchaError(f"Capsolver submit network/JSON error: {e}")
 
-    if data.get("status") != 1:
-        raise CaptchaError(f"2Captcha submit failed: {data}")
+    if data.get("errorId") != 0:
+        raise CaptchaError(f"Capsolver submit failed: {data.get('errorDescription', data)}")
 
-    request_id = data["request"]
-    print(f"[CAPTCHA] Submitted to 2Captcha, request_id={request_id}", flush=True)
+    task_id = data.get("taskId")
+    print(f"[CAPTCHA] Submitted to Capsolver, taskId={task_id}", flush=True)
 
     # 2. Poll for result
     deadline = time.time() + timeout
     while time.time() < deadline:
         time.sleep(5)
-        resp = requests.get("http://2captcha.com/res.php", params={
-            "key": api_key,
-            "action": "get",
-            "id": request_id,
-            "json": 1,
-        }, timeout=30)
-        data = resp.json()
+        try:
+            resp = requests.post("https://api.capsolver.com/getTaskResult", json={
+                "clientKey": api_key,
+                "taskId": task_id
+            }, timeout=30)
+            data = resp.json()
+        except Exception as e:
+            # We don't raise immediately on poll fail, just retry until deadline
+            print(f"[CAPTCHA] Poll error: {e}", flush=True)
+            continue
 
-        if data.get("status") == 1:
-            token = data["request"]
+        if data.get("errorId") != 0:
+            raise CaptchaError(f"Capsolver error: {data.get('errorDescription', data)}")
+
+        status = data.get("status")
+        if status == "ready":
+            token = data.get("solution", {}).get("gRecaptchaResponse", "")
             print(f"[CAPTCHA] ✓ Solved! Token length={len(token)}", flush=True)
             return token
 
-        if data.get("request") != "CAPCHA_NOT_READY":
-            raise CaptchaError(f"2Captcha error: {data}")
+        if status != "processing":
+            raise CaptchaError(f"Capsolver unknown status: {data}")
 
-    raise CaptchaError(f"2Captcha timeout after {timeout}s")
+    raise CaptchaError(f"Capsolver timeout after {timeout}s")
 
 
 def check_balance(api_key: str) -> float:
-    """Check remaining balance on 2Captcha account."""
-    resp = requests.get("http://2captcha.com/res.php", params={
-        "key": api_key,
-        "action": "getbalance",
-        "json": 1,
-    }, timeout=10)
-    data = resp.json()
-    if data.get("status") == 1:
-        return float(data["request"])
-    raise CaptchaError(f"Cannot check balance: {data}")
+    """Check remaining balance on Capsolver account."""
+    try:
+        resp = requests.post("https://api.capsolver.com/getBalance", json={
+            "clientKey": api_key
+        }, timeout=10)
+        data = resp.json()
+    except Exception as e:
+        raise CaptchaError(f"Cannot check balance (Network/JSON Error): {e}")
+        
+    if data.get("errorId") == 0:
+        return float(data.get("balance", 0.0))
+    raise CaptchaError(f"Cannot check balance: {data.get('errorDescription', data)}")
 
 
 class CaptchaError(Exception):

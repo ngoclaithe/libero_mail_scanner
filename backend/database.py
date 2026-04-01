@@ -30,6 +30,10 @@ def init_db():
         user_id INTEGER,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS settings (
+        key_name TEXT PRIMARY KEY,
+        value TEXT
+    )''')
 
     # Create default admin if not exists
     c.execute("SELECT id FROM users WHERE username='admin'")

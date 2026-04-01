@@ -275,16 +275,17 @@ class LiberoWebClient:
         batch_size = 50
 
         while True:
+            # OX API limit using startIndex,endIndex -> e.g limit="0,50" then "50,100"
             mails = self._api("mail", action="all", folder=sent_folder_id,
                               columns=MAIL_COLUMNS,
-                              limit=f"{offset},{batch_size}",
+                              limit=f"{offset},{offset + batch_size}",
                               sort="609", order="desc")  # Sort by date desc
 
             if not mails or not isinstance(mails, list) or len(mails) == 0:
                 break
 
             all_mails.extend(mails)
-            offset += batch_size
+            offset += len(mails)
 
             if len(mails) < batch_size:
                 break
@@ -315,29 +316,39 @@ class LiberoWebClient:
     # ── INTERNAL API CALL ─────────────────────────────────────
 
     def _api(self, module: str, **params):
-        """Call OX App Suite API and return JSON data."""
+        """Call OX App Suite API and return JSON data with retries."""
         params["session"] = self.ox_session
         url = f"{self.BASE_MAIL}/appsuite/api/{module}"
 
-        try:
-            resp = self.session.get(url, params=params, timeout=30)
-            print(f"[OX-API] {module}?action={params.get('action','')} → status={resp.status_code} len={len(resp.text)}", flush=True)
-            resp.raise_for_status()
-        except Exception as e:
-            print(f"[OX-API] {module} FAILED: {e}", flush=True)
-            raise
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                resp = self.session.get(url, params=params, timeout=30)
+                print(f"[OX-API] {module}?action={params.get('action','')} → status={resp.status_code} len={len(resp.text)}", flush=True)
+                resp.raise_for_status()
+                
+                try:
+                    data = resp.json()
+                except Exception as je:
+                    print(f"[OX-API] {module} NOT JSON (attempt {attempt+1}): {resp.text[:300]}", flush=True)
+                    # Force raise to trigger the retry except block below
+                    raise WebApiError(f"Extra data / non-JSON: {je}")
 
-        try:
-            data = resp.json()
-        except Exception:
-            print(f"[OX-API] {module} NOT JSON: {resp.text[:300]}", flush=True)
-            raise WebApiError(f"OX API returned non-JSON for {module}")
+                if "error" in data:
+                    print(f"[OX-API] {module} ERROR: {data.get('error_desc', data['error'])}", flush=True)
+                    raise WebApiError(f"OX API error: {data.get('error_desc', data['error'])}")
 
-        if "error" in data:
-            print(f"[OX-API] {module} ERROR: {data.get('error_desc', data['error'])}", flush=True)
-            raise WebApiError(f"OX API error: {data.get('error_desc', data['error'])}")
-
-        return data.get("data", data)
+                return data.get("data", data)
+                
+            except Exception as e:
+                # Do not retry on explicit OX API logical errors
+                if "OX API error" in str(e):
+                    raise
+                if attempt == max_retries - 1:
+                    print(f"[OX-API] {module} FAILED after {max_retries} attempts: {e}", flush=True)
+                    raise
+                print(f"[OX-API] Lỗi {e}, thử lại {attempt+1}/{max_retries}...", flush=True)
+                time.sleep(2)
 
 
 class WebLoginError(Exception):
@@ -397,6 +408,13 @@ def scan_account_web(
                 print(f"[WEB-LOGIN] {email_addr} | Login lần {captcha_attempt}/{MAX_CAPTCHA_RETRIES} lỗi: {wle}", flush=True)
                 if captcha_attempt >= MAX_CAPTCHA_RETRIES:
                     raise
+                continue
+            except Exception as ge:
+                # Catch requests.exceptions.ConnectionError, JSONDecodeError, etc. inside login
+                print(f"[WEB-LOGIN] {email_addr} | Lỗi mạng/ngoại lệ lần {captcha_attempt}/{MAX_CAPTCHA_RETRIES}: {ge}", flush=True)
+                if captcha_attempt >= MAX_CAPTCHA_RETRIES:
+                    raise WebLoginError(f"System/Network error: {ge}")
+                time.sleep(3)
                 continue
 
         user_state.update_account(email_addr, error="Web login OK, đang quét...")

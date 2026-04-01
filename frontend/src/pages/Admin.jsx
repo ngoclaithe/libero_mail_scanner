@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { apiGetAdminUsers, apiGetAdminLogs, apiCreateUser, apiUpdateCredits } from '../api';
+import { apiGetAdminUsers, apiGetAdminLogs, apiCreateUser, apiUpdateCredits, apiGetCaptchaKey, apiSetCaptchaKey } from '../api';
 
 export default function Admin() {
   const { logout } = useAuth();
@@ -11,11 +11,17 @@ export default function Admin() {
   const [createMsg, setCreateMsg] = useState(null);
   const [createErr, setCreateErr] = useState(null);
 
+  const [captchaKey, setCaptchaKey] = useState('');
+  const [captchaStatus, setCaptchaStatus] = useState({ configured: false, key_preview: '' });
+  const [captchaMsg, setCaptchaMsg] = useState(null);
+  const [captchaErr, setCaptchaErr] = useState(null);
+
   const loadData = async () => {
     try {
-      const [u, l] = await Promise.all([apiGetAdminUsers(), apiGetAdminLogs()]);
+      const [u, l, cap] = await Promise.all([apiGetAdminUsers(), apiGetAdminLogs(), apiGetCaptchaKey()]);
       setUsers(u);
       setLogs(l);
+      setCaptchaStatus(cap);
     } catch (e) {
       console.error('Admin data load failed', e);
     }
@@ -40,6 +46,24 @@ export default function Admin() {
       }
     } catch (e) {
       setCreateErr(e.message);
+    }
+  };
+
+  const handleSaveCaptcha = async (e) => {
+    e.preventDefault();
+    setCaptchaMsg(null);
+    setCaptchaErr(null);
+    try {
+      const data = await apiSetCaptchaKey(captchaKey);
+      if (data.ok) {
+        setCaptchaMsg(data.msg);
+        setCaptchaKey('');
+        loadData();
+      } else {
+        setCaptchaErr(data.msg || 'Lỗi lưu API Key');
+      }
+    } catch (e) {
+      setCaptchaErr(e.message);
     }
   };
 
@@ -102,6 +126,32 @@ export default function Admin() {
         </form>
         {createErr && <div className="msg-err">⚠ {createErr}</div>}
         {createMsg && <div className="msg-ok">✅ {createMsg}</div>}
+      </div>
+
+      {/* ── System Config ── */}
+      <div className="admin-card">
+        <h2>Cấu hình Giải mã Captcha (Capsolver)</h2>
+        <div style={{ marginBottom: 15 }}>
+          Trạng thái: {captchaStatus?.configured ? <span style={{color: 'var(--green)', fontWeight: 600}}>Đã cấu hình ({captchaStatus?.key_preview})</span> : <span style={{color: 'var(--red)', fontWeight: 600}}>Chưa cấu hình</span>}
+        </div>
+        <form onSubmit={handleSaveCaptcha} className="admin-form">
+          <div className="admin-form-group">
+            <label>Capsolver API Key</label>
+            <input
+              type="text"
+              placeholder="CAI-..."
+              value={captchaKey}
+              onChange={(e) => setCaptchaKey(e.target.value)}
+              required
+              style={{ width: 350 }}
+            />
+          </div>
+          <button type="submit" className="btn btn-green" style={{ padding: '8px 16px', height: 38 }}>
+            Lưu & Kiểm tra số dư
+          </button>
+        </form>
+        {captchaErr && <div className="msg-err">⚠ {captchaErr}</div>}
+        {captchaMsg && <div className="msg-ok">✅ {captchaMsg}</div>}
       </div>
 
       {/* ── User Management ── */}
