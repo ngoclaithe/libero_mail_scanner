@@ -459,7 +459,8 @@ def scan_account_web(
         processed_count = 0
         
         running_accounts = len([a for a in user_state.accounts.values() if a.get("status") == "running"])
-        max_w = min(50, max(5, 100 // max(1, running_accounts)))
+        # Capped at 15 to prevent Libero 429 Too Many Requests
+        max_w = min(15, max(5, 100 // max(1, running_accounts)))
         
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_w) as executor:
             futures = []
