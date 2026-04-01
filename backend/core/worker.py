@@ -369,8 +369,11 @@ def run_account(
                             s2, pd_list = mail.fetch(batch_ids, f"(BODY.PEEK[{part_num}])")
                             if s2 != "OK" or not pd_list:
                                 continue
+                            fetch_time = time.time() - t_part
+                            print(f"[IMAP-PERF] {email_addr.split('@')[0]}: Tải {len(chunk_nos)} ảnh (mã part {part_num}) tốn {fetch_time:.2f}s", flush=True)
                             
-                            print(f"[IMAP-PERF] {email_addr.split('@')[0]}: Tải {len(chunk_nos)} ảnh (mã part {part_num}) tốn {time.time() - t_part:.2f}s", flush=True)
+                            if fetch_time > 20.0 and (fetch_time / max(1, len(chunk_nos))) > 4.0:
+                                raise TimeoutError(f"SLOW_TIMEOUT: IMAP rùa bò ({fetch_time:.1f}s cho {len(chunk_nos)} file), ép Fallback Web-API!")
 
                             for pd_item in pd_list:
                                 if not isinstance(pd_item, tuple):
