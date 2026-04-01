@@ -163,9 +163,13 @@ def run_account(
     raw_dir.mkdir(parents=True, exist_ok=True)
 
     mail = None
+    max_proxy_switches = min(len(pool) // 2, 10)  # Tối đa thử nửa pool, cap 10
+    proxy_switches = 0
+
     try:
-        # ── Connect + login (with retry) ──────────────────────
-        for attempt in range(RETRY_MAX):
+        # ── Connect + login (with retry + proxy rotation) ─────
+        attempt = 0
+        while attempt < RETRY_MAX:
             if stop_event.is_set():
                 user_state.update_account(email_addr, status="stopped")
                 return
@@ -175,12 +179,38 @@ def run_account(
                 break
             except imaplib.IMAP4.error as e:
                 err = str(e)
-                _handle_auth_error(proxy, pool, err)
-                user_state.update_account(email_addr, status="failed", error=err)
-                return
+                # ── Policy bsc KO = IP bị chặn → đổi proxy thử lại ──
+                if "policy" in err.lower() and "ko" in err.lower():
+                    if proxy and proxy_switches < max_proxy_switches:
+                        old_proxy_id = proxy.id
+                        pool.mark_blocked(proxy, err)
+                        pool.release(proxy)
+                        proxy_switches += 1
+                        proxy = pool.acquire(email_addr)
+                        new_proxy_id = proxy.id if proxy else "direct"
+                        print(f"[PROXY-ROTATE] {email_addr}: Policy KO trên {old_proxy_id} → đổi sang {new_proxy_id} (lần {proxy_switches}/{max_proxy_switches})", flush=True)
+                        user_state.update_account(email_addr,
+                                                  proxy=new_proxy_id,
+                                                  error=f"Policy KO → đổi proxy ({proxy_switches}/{max_proxy_switches})")
+                        time.sleep(1)
+                        attempt = 0       # Reset retry counter cho proxy mới
+                        continue
+                    else:
+                        # Hết proxy hoặc hết lượt đổi
+                        if proxy:
+                            pool.mark_blocked(proxy, err)
+                        user_state.update_account(email_addr, status="failed",
+                                                  error=f"Policy KO — đã thử {proxy_switches} proxy, không có proxy nào dùng được")
+                        return
+                else:
+                    # Lỗi auth thật (sai mật khẩu, account bị khóa...)
+                    _handle_auth_error(proxy, pool, err)
+                    user_state.update_account(email_addr, status="failed", error=err)
+                    return
             except Exception as e:
                 err = str(e)
-                if attempt == RETRY_MAX - 1:
+                attempt += 1
+                if attempt >= RETRY_MAX:
                     _handle_conn_error(proxy, pool, err)
                     user_state.update_account(email_addr, status="failed", error=err)
                     return
