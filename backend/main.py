@@ -144,23 +144,25 @@ async def get_me(current_user: TokenData = Depends(get_current_user)):
 
 
 # ── Scanner API ───────────────────────────────────────────────
+# All users share one scanner (single VPS, shared state)
+SHARED_SCANNER_ID = 1
 
 @app.get("/api/state")
 async def api_state(current_user: TokenData = Depends(get_current_user)):
-    sc = scanner_manager.get_scanner(current_user.user_id)
+    sc = scanner_manager.get_scanner(SHARED_SCANNER_ID)
     return sc.get_state()
 
 
 @app.post("/api/start")
 async def api_start(current_user: TokenData = Depends(get_current_user)):
-    sc = scanner_manager.get_scanner(current_user.user_id)
+    sc = scanner_manager.get_scanner(SHARED_SCANNER_ID)
     ok, msg = sc.start()
     return {"ok": ok, "msg": msg}
 
 
 @app.post("/api/stop")
 async def api_stop(current_user: TokenData = Depends(get_current_user)):
-    sc = scanner_manager.get_scanner(current_user.user_id)
+    sc = scanner_manager.get_scanner(SHARED_SCANNER_ID)
     sc.stop()
     return {"ok": True, "msg": "Stop signal sent"}
 
@@ -181,7 +183,7 @@ async def api_upload(
     with open(save_path, "wb") as f:
         f.write(content)
 
-    sc = scanner_manager.get_scanner(current_user.user_id)
+    sc = scanner_manager.get_scanner(SHARED_SCANNER_ID)
     sc.set_accounts_file(save_path)
     preview = sc.accounts_preview()
     count = len(preview)
@@ -227,7 +229,7 @@ class SaveAccountsRequest(BaseModel):
 @app.get("/api/accounts")
 async def api_get_accounts(current_user: TokenData = Depends(get_current_user)):
     """Return the current account list for this user."""
-    sc = scanner_manager.get_scanner(current_user.user_id)
+    sc = scanner_manager.get_scanner(SHARED_SCANNER_ID)
     accounts = sc._load_accounts()
     return {"accounts": accounts}
 
@@ -269,7 +271,7 @@ async def api_save_accounts(
         for acc in req.accounts:
             f.write(f"{acc.email}:{acc.password}\n")
 
-    sc = scanner_manager.get_scanner(current_user.user_id)
+    sc = scanner_manager.get_scanner(SHARED_SCANNER_ID)
     sc.set_accounts_file(save_path)
 
     return {
@@ -294,7 +296,7 @@ async def api_upload_proxies(
     with open(save_path, "wb") as f:
         f.write(content)
 
-    sc = scanner_manager.get_scanner(current_user.user_id)
+    sc = scanner_manager.get_scanner(SHARED_SCANNER_ID)
     sc.set_proxy_file(save_path)
 
     return {
@@ -317,7 +319,7 @@ class SaveProxiesRequest(BaseModel):
 @app.get("/api/proxies")
 async def api_get_proxies(current_user: TokenData = Depends(get_current_user)):
     """Return the current proxy list for this user (from file)."""
-    sc = scanner_manager.get_scanner(current_user.user_id)
+    sc = scanner_manager.get_scanner(SHARED_SCANNER_ID)
     proxy_file = sc._proxy_file
     proxies = []
     try:
@@ -354,7 +356,7 @@ async def api_save_proxies(
         for p in req.proxies:
             f.write(f"{p.host}:{p.port}:{p.username}:{p.password}\n")
 
-    sc = scanner_manager.get_scanner(current_user.user_id)
+    sc = scanner_manager.get_scanner(SHARED_SCANNER_ID)
     sc.set_proxy_file(save_path)
 
     return {
