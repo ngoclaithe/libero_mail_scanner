@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { apiGetState, apiStart, apiStop, apiUploadAccounts, apiUploadProxies, apiGetGallery, getMediaUrl, apiDeleteGallery, apiDownloadGallery, apiClearAllGallery } from '../api';
+import { apiGetState, apiStart, apiStop, apiUploadAccounts, apiUploadProxies, apiGetGallery, getMediaUrl, apiDeleteGallery, apiDownloadGallery, apiClearAllGallery, apiGetAccounts, apiSaveAccounts } from '../api';
 import {
   Menu, Mail, Image as ImageIcon, Activity, Globe,
   Play, Square, LogOut, Settings, User as UserIcon,
-  Trash2, Download, CheckSquare, X, ChevronLeft, ChevronRight
+  Trash2, Download, CheckSquare, X, ChevronLeft, ChevronRight,
+  Upload, Plus, Edit3, Save
 } from 'lucide-react';
 
 const POLL_MS = 2000;
@@ -38,11 +39,8 @@ export default function Dashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [logs, setLogs] = useState([]);
   const [gallery, setGallery] = useState({});
-  const [file, setFile] = useState(null);
-  const [uploadStatus, setUploadStatus] = useState(null);
-  const [uploading, setUploading] = useState(false);
+  const [showAccountsModal, setShowAccountsModal] = useState(false);
   const prevStateRef = useRef({});
-  const fileInputRef = useRef(null);
   const proxyFileInputRef = useRef(null);
 
   const [proxyFile, setProxyFile] = useState(null);
@@ -119,29 +117,7 @@ export default function Dashboard() {
     addLog(data.msg);
   };
 
-  const handleFileChange = (e) => {
-    const f = e.target.files[0];
-    setFile(f || null);
-    setUploadStatus(null);
-  };
 
-  const handleUpload = async () => {
-    if (!file) return;
-    setUploading(true);
-    try {
-      const data = await apiUploadAccounts(file);
-      if (data.ok) {
-        setUploadStatus({ type: 'ok', msg: `✓ ${data.msg}` });
-        addLog(`📂 Uploaded: ${data.msg} (${(data.preview || []).slice(0, 3).join(', ')})`);
-        refreshUser();
-      } else {
-        setUploadStatus({ type: 'err', msg: `✗ ${data.msg}` });
-      }
-    } catch (e) {
-      addLog('⚠ Lỗi tải lên: ' + e.message);
-    }
-    setUploading(false);
-  };
 
   const handleProxyFileChange = (e) => {
     const f = e.target.files[0];
@@ -249,26 +225,11 @@ export default function Dashboard() {
           {activeTab === 'accounts' && (
             <>
               <div className="upload-bar">
-                <label>📂 Danh sách Accounts (.csv/.txt):</label>
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  accept=".csv,.txt"
-                  onChange={handleFileChange}
-                  style={{ display: 'none' }}
-                />
-                <button className="btn btn-upload" onClick={() => fileInputRef.current?.click()}>
-                  Chọn File
+                <label>📂 Danh sách Accounts:</label>
+                <button className="btn btn-upload" onClick={() => setShowAccountsModal(true)} style={{ gap: '6px' }}>
+                  <Settings size={14} /> Quản lý Accounts
                 </button>
-                <span className="file-label">{file ? file.name : 'Chưa chọn tệp'}</span>
-                <button className="btn btn-upload" onClick={handleUpload} disabled={!file || uploading}>
-                  {uploading ? 'Đang nạp...' : '⬆ Tải lên'}
-                </button>
-                {uploadStatus && (
-                  <span className={`upload-status show ${uploadStatus.type}`}>
-                    {uploadStatus.msg}
-                  </span>
-                )}
+                <span className="file-label muted">Tổng: {t.accounts_total ?? 0} tài khoản đã nạp</span>
               </div>
 
               <div className="cards">
@@ -422,9 +383,257 @@ export default function Dashboard() {
             </div>
           </div>
         )}
+
+      {/* ── Accounts Modal ── */}
+      {showAccountsModal && (
+        <AccountsModal
+          onClose={() => setShowAccountsModal(false)}
+          addLog={addLog}
+          refreshUser={refreshUser}
+        />
+      )}
       </div>
     </div>
   </div>
+  );
+}
+
+
+/* ══════════════════════════════════════════════════════════════
+   AccountsModal — Quản lý danh sách accounts
+   ══════════════════════════════════════════════════════════════ */
+
+function AccountsModal({ onClose, addLog, refreshUser }) {
+  const [accounts, setAccounts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editIdx, setEditIdx] = useState(-1);
+  const [editEmail, setEditEmail] = useState('');
+  const [editPwd, setEditPwd] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const fileRef = useRef(null);
+
+  // Load existing accounts on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await apiGetAccounts();
+        setAccounts(data.accounts || []);
+      } catch (e) {
+        console.error('Load accounts fail', e);
+      }
+      setLoading(false);
+    })();
+  }, []);
+
+  // Handle file import (select + parse instantly)
+  const handleFileImport = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target.result;
+      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const parsed = [];
+      // Check if CSV with header
+      const first = lines[0]?.toLowerCase() || '';
+      const hasHeader = first.includes('email') && first.includes('password');
+      const startIdx = hasHeader ? 1 : 0;
+      for (let i = startIdx; i < lines.length; i++) {
+        const line = lines[i];
+        let email, pwd;
+        if (line.includes(',')) {
+          [email, pwd] = line.split(',').map(s => s.trim());
+        } else if (line.includes(':')) {
+          [email, ...pwd] = line.split(':');
+          email = email.trim();
+          pwd = pwd.join(':').trim();
+        } else continue;
+        if (email && pwd) parsed.push({ email, password: pwd });
+      }
+      if (parsed.length > 0) {
+        setAccounts(parsed);
+        addLog?.(`📂 Đã import ${parsed.length} accounts từ file ${file.name}`);
+      } else {
+        alert('Không tìm thấy account hợp lệ trong file!');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleDelete = (idx) => {
+    setAccounts(prev => prev.filter((_, i) => i !== idx));
+    if (editIdx === idx) setEditIdx(-1);
+  };
+
+  const startEdit = (idx) => {
+    setEditIdx(idx);
+    setEditEmail(accounts[idx].email);
+    setEditPwd(accounts[idx].password);
+  };
+
+  const saveEdit = () => {
+    if (!editEmail.trim() || !editPwd.trim()) return;
+    setAccounts(prev => prev.map((a, i) =>
+      i === editIdx ? { email: editEmail.trim(), password: editPwd.trim() } : a
+    ));
+    setEditIdx(-1);
+  };
+
+  const handleAddRow = () => {
+    if (!newEmail.trim() || !newPwd.trim()) return;
+    setAccounts(prev => [...prev, { email: newEmail.trim(), password: newPwd.trim() }]);
+    setNewEmail('');
+    setNewPwd('');
+  };
+
+  const handleSave = async () => {
+    if (accounts.length === 0) {
+      alert('Danh sách rỗng!');
+      return;
+    }
+    setSaving(true);
+    try {
+      const data = await apiSaveAccounts(accounts);
+      addLog?.(`✅ ${data.msg}`);
+      refreshUser?.();
+      onClose();
+    } catch (e) {
+      alert(e.message);
+    }
+    setSaving(false);
+  };
+
+  // Close on Escape
+  useEffect(() => {
+    const handleKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [onClose]);
+
+  return (
+    <div className="acc-modal-overlay" onClick={onClose}>
+      <div className="acc-modal" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="acc-modal-header">
+          <h2>📝 Quản Lý Danh Sách Accounts</h2>
+          <button className="acc-modal-close" onClick={onClose}><X size={20} /></button>
+        </div>
+
+        {/* Toolbar */}
+        <div className="acc-modal-toolbar">
+          <input type="file" ref={fileRef} accept=".csv,.txt" onChange={handleFileImport} style={{ display: 'none' }} />
+          <button className="btn btn-upload" onClick={() => fileRef.current?.click()} style={{ gap: '6px' }}>
+            <Upload size={14} /> Import từ File (.csv/.txt)
+          </button>
+          <span className="muted" style={{ fontSize: '12px' }}>
+            {accounts.length} accounts
+          </span>
+        </div>
+
+        {/* Table */}
+        <div className="acc-modal-table-wrap">
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '40px', color: 'var(--muted)' }}>Loading...</div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: 40 }}>#</th>
+                  <th>Email</th>
+                  <th>Password</th>
+                  <th style={{ width: 90 }}>Thao Tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                {accounts.map((acc, i) => (
+                  <tr key={i}>
+                    <td className="mono muted">{i + 1}</td>
+                    {editIdx === i ? (
+                      <>
+                        <td>
+                          <input className="acc-edit-input" value={editEmail}
+                            onChange={e => setEditEmail(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && saveEdit()}
+                          />
+                        </td>
+                        <td>
+                          <input className="acc-edit-input" value={editPwd}
+                            onChange={e => setEditPwd(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && saveEdit()}
+                          />
+                        </td>
+                        <td>
+                          <button className="acc-action-btn green" onClick={saveEdit} title="Lưu">
+                            <Save size={14} />
+                          </button>
+                          <button className="acc-action-btn" onClick={() => setEditIdx(-1)} title="Hủy">
+                            <X size={14} />
+                          </button>
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="mono small">{acc.email}</td>
+                        <td className="mono small muted">{acc.password.replace(/./g, '•').slice(0, 12)}…</td>
+                        <td>
+                          <button className="acc-action-btn" onClick={() => startEdit(i)} title="Sửa">
+                            <Edit3 size={14} />
+                          </button>
+                          <button className="acc-action-btn red" onClick={() => handleDelete(i)} title="Xóa">
+                            <Trash2 size={14} />
+                          </button>
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                ))}
+                {/* Add row */}
+                <tr className="acc-add-row">
+                  <td className="mono muted"><Plus size={14} /></td>
+                  <td>
+                    <input className="acc-edit-input" placeholder="email@libero.it"
+                      value={newEmail} onChange={e => setNewEmail(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleAddRow()}
+                    />
+                  </td>
+                  <td>
+                    <input className="acc-edit-input" placeholder="password"
+                      value={newPwd} onChange={e => setNewPwd(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleAddRow()}
+                    />
+                  </td>
+                  <td>
+                    <button className="acc-action-btn green" onClick={handleAddRow}
+                      disabled={!newEmail.trim() || !newPwd.trim()} title="Thêm">
+                      <Plus size={14} />
+                    </button>
+                  </td>
+                </tr>
+                {accounts.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="muted" style={{ textAlign: 'center', padding: 30 }}>
+                      Chưa có account nào. Import file hoặc thêm thủ công ở trên.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="acc-modal-footer">
+          <button className="btn btn-upload" onClick={onClose}>Hủy</button>
+          <button className="btn btn-start" onClick={handleSave} disabled={saving || accounts.length === 0}
+            style={{ gap: '6px' }}>
+            <Save size={14} /> {saving ? 'Đang lưu...' : `Lưu & Nạp (${accounts.length} accounts)`}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 const PER_PAGE = 24;

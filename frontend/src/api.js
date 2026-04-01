@@ -151,3 +151,24 @@ export async function apiDownloadGallery(files) {
   if (!res.ok) throw new Error('Download failed');
   return res.blob();
 }
+
+export async function apiGetAccounts() {
+  const res = await fetch(`${API_URL}/api/accounts`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error('Failed to fetch accounts');
+  return res.json();
+}
+
+export async function apiSaveAccounts(accounts) {
+  const res = await fetch(`${API_URL}/api/accounts/save`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accounts }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || 'Lưu thất bại');
+  }
+  return res.json();
+}

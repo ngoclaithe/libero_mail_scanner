@@ -24,7 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 
 from database import init_db, get_db
 from auth import (
@@ -213,6 +213,69 @@ async def api_upload(
         "msg": f"Đã duyệt {count} accounts. Trừ {count if user['role'] != 'admin' else 0} credits.",
         "count": count,
         "preview": preview[:5],
+    }
+
+
+class AccountItem(BaseModel):
+    email: str
+    password: str
+
+class SaveAccountsRequest(BaseModel):
+    accounts: List[AccountItem]
+
+
+@app.get("/api/accounts")
+async def api_get_accounts(current_user: TokenData = Depends(get_current_user)):
+    """Return the current account list for this user."""
+    sc = scanner_manager.get_scanner(current_user.user_id)
+    accounts = sc._load_accounts()
+    return {"accounts": accounts}
+
+
+@app.post("/api/accounts/save")
+async def api_save_accounts(
+    req: SaveAccountsRequest,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Save accounts from JSON (edited in modal). Deducts credits."""
+    count = len(req.accounts)
+    if count == 0:
+        raise HTTPException(400, "Danh sách rỗng")
+
+    # Check credits
+    db = get_db()
+    user = db.execute(
+        "SELECT credits, role FROM users WHERE id=?",
+        (current_user.user_id,)
+    ).fetchone()
+
+    if user["role"] != "admin":
+        if user["credits"] < count:
+            db.close()
+            raise HTTPException(
+                403,
+                f"Không đủ Credit! Cần {count} credits cho {count} mail (Hiện có {user['credits']})."
+            )
+        db.execute(
+            "UPDATE users SET credits = credits - ? WHERE id=?",
+            (count, current_user.user_id)
+        )
+        db.commit()
+    db.close()
+
+    # Save to file
+    save_path = f"accounts_{current_user.user_id}.csv"
+    with open(save_path, "w", encoding="utf-8") as f:
+        for acc in req.accounts:
+            f.write(f"{acc.email}:{acc.password}\n")
+
+    sc = scanner_manager.get_scanner(current_user.user_id)
+    sc.set_accounts_file(save_path)
+
+    return {
+        "ok": True,
+        "msg": f"Đã lưu {count} accounts. Trừ {count if user['role'] != 'admin' else 0} credits.",
+        "count": count,
     }
 
 
