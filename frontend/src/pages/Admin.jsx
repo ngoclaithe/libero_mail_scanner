@@ -78,8 +78,7 @@ export default function Admin() {
 
   return (
     <div className="admin-page fade-in">
-      {/* ── Header ── */}
-      <div className="admin-header">
+            <div className="admin-header">
         <h1>👑 Admin Panel</h1>
         <div className="admin-header-nav">
           <Link to="/">← Quay lại Dashboard</Link>
@@ -87,8 +86,7 @@ export default function Admin() {
         </div>
       </div>
 
-      {/* ── Create User ── */}
-      <div className="admin-card">
+            <div className="admin-card">
         <h2>Tạo Người Dùng Mới</h2>
         <form onSubmit={handleCreateUser} className="admin-form">
           <div className="admin-form-group">
@@ -128,8 +126,7 @@ export default function Admin() {
         {createMsg && <div className="msg-ok">✅ {createMsg}</div>}
       </div>
 
-      {/* ── System Config ── */}
-      <div className="admin-card">
+            <div className="admin-card">
         <h2>Cấu hình Giải mã Captcha (Capsolver)</h2>
         <div style={{ marginBottom: 15 }}>
           Trạng thái: {captchaStatus?.configured ? <span style={{color: 'var(--green)', fontWeight: 600}}>Đã cấu hình ({captchaStatus?.key_preview})</span> : <span style={{color: 'var(--red)', fontWeight: 600}}>Chưa cấu hình</span>}
@@ -154,8 +151,7 @@ export default function Admin() {
         {captchaMsg && <div className="msg-ok">✅ {captchaMsg}</div>}
       </div>
 
-      {/* ── User Management ── */}
-      <div className="admin-card">
+            <div className="admin-card">
         <h2>Quản lý Credit & Người dùng</h2>
         <div className="table-wrap">
           <table>
@@ -177,8 +173,7 @@ export default function Admin() {
         </div>
       </div>
 
-      {/* ── Access Logs ── */}
-      <div className="admin-card">
+            <div className="admin-card">
         <h2>Nhật ký truy cập IP (IP Logs)</h2>
         <div className="table-wrap">
           <table>

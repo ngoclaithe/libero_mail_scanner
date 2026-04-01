@@ -2,19 +2,12 @@ import copy
 import threading
 from datetime import datetime
 
-
 class AppState:
-    """
-    Single source of truth for all runtime state.
-    Fully thread-safe via a single RLock.
-    """
 
     def __init__(self, user_id=0):
         self.user_id = user_id
         self._lock = threading.RLock()
         self._d    = self._blank()
-
-    # ── Lifecycle ─────────────────────────────────────────────
 
     def reset(self):
         with self._lock:
@@ -27,8 +20,6 @@ class AppState:
                 self._d["started_at"] = datetime.now().isoformat()
             elif status in ("done", "stopped"):
                 self._d["ended_at"] = datetime.now().isoformat()
-
-    # ── Account management ────────────────────────────────────
 
     def init_accounts(self, emails: list):
         with self._lock:
@@ -50,7 +41,6 @@ class AppState:
             if email in self._d["accounts"]:
                 self._d["accounts"][email].update(kw)
 
-    # ── Counters ──────────────────────────────────────────────
     
     def add_ai_log(self, text: str):
         with self._lock:
@@ -63,10 +53,7 @@ class AppState:
         with self._lock:
             self._d["totals"][key] = self._d["totals"].get(key, 0) + amount
 
-    # ── Read ──────────────────────────────────────────────────
-
     def snapshot(self) -> dict:
-        """Deep-copy snapshot — safe to hand to JSON."""
         with self._lock:
             return copy.deepcopy(self._d)
 
@@ -74,8 +61,6 @@ class AppState:
     def status(self) -> str:
         with self._lock:
             return self._d["status"]
-
-    # ── Internal ──────────────────────────────────────────────
 
     @staticmethod
     def _blank() -> dict:
@@ -94,6 +79,4 @@ class AppState:
             },
         }
 
-
-# Module-level singleton
 state = AppState()

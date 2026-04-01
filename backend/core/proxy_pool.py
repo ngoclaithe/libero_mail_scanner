@@ -6,13 +6,11 @@ from typing import Optional
 
 import socks
 
-
 class ProxyStatus(str, Enum):
     ACTIVE       = "active"
     RATE_LIMITED = "rate_limited"
     BLOCKED      = "blocked"
     DEAD         = "dead"
-
 
 @dataclass
 class ProxyInfo:
@@ -44,20 +42,13 @@ class ProxyInfo:
             "last_used":  self.last_used.isoformat() if self.last_used else None,
         }
 
-
 class ProxyPool:
-    """
-    Thread-safe pool of HTTP proxies.
-    File format per line:  host:port:username:password
-    """
 
     def __init__(self, filepath: str):
         self._lock    = threading.Lock()
         self._proxies: list[ProxyInfo] = []
         self._idx     = 0
         self._parse(filepath)
-
-    # ── Parsing ───────────────────────────────────────────────
 
     def _parse(self, path: str):
         with open(path, encoding="utf-8") as f:
@@ -73,10 +64,7 @@ class ProxyPool:
                                   username=user, password=pwd)
                     )
 
-    # ── Acquire / Release ─────────────────────────────────────
-
     def acquire(self, account: str) -> Optional[ProxyInfo]:
-        """Pick next available proxy and mark it in-use."""
         with self._lock:
             available = [
                 p for p in self._proxies
@@ -96,8 +84,6 @@ class ProxyPool:
         with self._lock:
             proxy.used_by = None
 
-    # ── Status marking ────────────────────────────────────────
-
     def mark_rate_limited(self, proxy: ProxyInfo, error: str = ""):
         self._mark(proxy, ProxyStatus.RATE_LIMITED, error)
 
@@ -114,8 +100,6 @@ class ProxyPool:
             proxy.last_error = error
             proxy.used_by    = None
 
-    # ── Read ──────────────────────────────────────────────────
-
     def all_info(self) -> list[dict]:
         with self._lock:
             return [p.to_dict() for p in self._proxies]
@@ -123,16 +107,10 @@ class ProxyPool:
     def __len__(self) -> int:
         return len(self._proxies)
 
-    # ── SOCKS connection factory ─────────────────────────────
-
     @staticmethod
     def make_connection(host: str, port: int,
                         proxy: Optional[ProxyInfo],
                         timeout: int = 30):
-        """
-        Returns a connected raw socket (NOT SSL-wrapped).
-        Thread-safe: creates a new socket per call, no global patching.
-        """
         if proxy:
             import socket
             import base64

@@ -1,8 +1,3 @@
-"""
-Per-account IMAP worker.
-Runs inside a ThreadPoolExecutor thread.
-Uses ImapClient (thread-safe) instead of monkey-patched socket.
-"""
 
 import csv
 import imaplib
@@ -22,9 +17,6 @@ from core.proxy_pool import ProxyPool, ProxyInfo, ProxyStatus
 from core.state import AppState
 from core.classifier import ai_queue
 
-
-# ── Header decode ─────────────────────────────────────────────
-
 def _decode(value) -> str:
     if value is None:
         return ""
@@ -37,12 +29,8 @@ def _decode(value) -> str:
             result.append(str(chunk))
     return " ".join(result)
 
-
 def _safe_name(name: str) -> str:
     return re.sub(r'[^\w.\-_ ]', '_', name).strip() or "attachment"
-
-
-# ── Custom IMAP Parser ────────────────────────────────────────
 
 def _parse_imap_list(s: str) -> list:
     stack = [[]]
@@ -82,13 +70,12 @@ def _parse_imap_list(s: str) -> list:
 def _find_parts(parsed, prefix="") -> list:
     parts = []
     if isinstance(parsed, list) and len(parsed) > 0:
-        if isinstance(parsed[0], list): # Multipart
-            # Cấu trúc multipart chứa các sub-parts, ta đếm index (1-based)
+        if isinstance(parsed[0], list):
             subparts = [p for p in parsed if isinstance(p, list)]
             for i, p in enumerate(subparts):
                 num = f"{prefix}.{i+1}" if prefix else str(i+1)
                 parts.extend(_find_parts(p, num))
-        elif isinstance(parsed[0], str): # Single part
+        elif isinstance(parsed[0], str):
             mime1 = parsed[0].lower()
             mime2 = parsed[1].lower() if len(parsed) > 1 and isinstance(parsed[1], str) else ""
             mime = f"{mime1}/{mime2}"
@@ -97,14 +84,11 @@ def _find_parts(parsed, prefix="") -> list:
     return parts
 
 def _extract_bodystructure(header_bytes: bytes) -> str:
-    """Extracts the BODYSTRUCTURE (...) substring from IMAP response."""
     s = header_bytes.decode('utf-8', errors='ignore')
-    # Tìm index của "BODYSTRUCTURE ("
     idx = s.find("BODYSTRUCTURE (")
     if idx == -1: return ""
     idx += len("BODYSTRUCTURE ")
     
-    # Matching parenthesis
     open_p = 0
     for i in range(idx, len(s)):
         if s[i] == '(': open_p += 1
@@ -114,7 +98,6 @@ def _extract_bodystructure(header_bytes: bytes) -> str:
     return ""
 
 def _get_part_size(p_info: list) -> int:
-    """Safely extract size in bytes from IMAP BODYSTRUCTURE part."""
     try:
         if len(p_info) > 6:
             for item in p_info[5:10]:
@@ -124,22 +107,12 @@ def _get_part_size(p_info: list) -> int:
         pass
     return -1
 
-
-
-
-# ── Main worker ───────────────────────────────────────────────
-
 def run_account(
     account:    dict,
     pool:       ProxyPool,
     stop_event: threading.Event,
     user_state: "AppState" = None,
 ):
-    """
-    Download all image/* and PDF attachments from one account's outbox.
-    Updates the per-user state object as it progresses.
-    """
-    # Use passed-in per-user state (fall back to module-level for backwards compat)
     if user_state is None:
         from core.state import state as _global_state
         user_state = _global_state
@@ -148,7 +121,6 @@ def run_account(
     password   = account["password"]
     thread_name = threading.current_thread().name
 
-    # ── Acquire proxy ─────────────────────────────────────────
     proxy: Optional[ProxyInfo] = pool.acquire(email_addr)
     proxy_id = proxy.id if proxy else "direct"
 
@@ -157,7 +129,6 @@ def run_account(
                          proxy=proxy_id,
                          thread=thread_name)
 
-    # Output dir
     slug    = re.sub(r'[^\w]', '_', email_addr.split("@")[0])
     raw_dir = OUTPUT_DIR / slug / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
@@ -167,28 +138,22 @@ def run_account(
     proxy_switches = 0
 
     try:
-        # ── Connect + login ──────────────────────────────────────
-        # Strategy: try ssl+login first. If Policy KO → web fallback immediately.
-        # If proxy error → rotate proxy (max 3), then try direct.
-        # No point trying 4 modes — Policy KO is account-level, not mode-level.
 
         attempt = 0
         while attempt < RETRY_MAX:
-            if stop_event.is_set():
-                user_state.update_account(email_addr, status="stopped")
+            if stop_event.is_set() or user_state.accounts.get(email_addr, {}).get("status") == "stopped":
+                user_state.update_account(email_addr, status="stopped", error="Đã dừng phiên quét")
                 return
 
             try:
                 proxy_label = proxy.id if proxy else "direct"
                 mail = new_client(proxy=proxy, mode="ssl")
                 typ, data = mail.login(email_addr, password)
-                # Login OK — proceed silently
                 break
 
             except imaplib.IMAP4.error as e:
                 err = str(e)
                 if "policy" in err.lower() and "ko" in err.lower():
-                    # ── POLICY KO → immediate web fallback ──
                     print(f"[POLICY-KO] {email_addr} | proxy={proxy_label} → web fallback", flush=True)
                     if proxy:
                         pool.release(proxy)
@@ -213,7 +178,6 @@ def run_account(
                                                   error="Policy KO, no captcha key")
                     return
                 else:
-                    # Real auth fail (wrong password, locked, etc)
                     _handle_auth_error(proxy, pool, err)
                     user_state.update_account(email_addr, status="failed", error=err)
                     return
@@ -223,7 +187,6 @@ def run_account(
                 err_type = type(e).__name__
                 proxy_label = proxy.id if proxy else "direct"
 
-                # Check if this is a proxy error
                 is_proxy_error = proxy and any(k in err.lower() for k in [
                     "proxy rejected", "502", "407", "bad gateway",
                     "connection refused", "connect tunnel",
@@ -239,9 +202,8 @@ def run_account(
                     print(f"[PROXY] {email_addr}: {old_id} → {new_id} ({proxy_switches}/{MAX_PROXY_ROTATIONS})", flush=True)
                     user_state.update_account(email_addr, proxy=new_id)
                     time.sleep(0.5)
-                    continue  # Retry with new proxy
+                    continue
                 elif is_proxy_error and proxy_switches >= MAX_PROXY_ROTATIONS:
-                    # Proxy exhausted → fallback web login
                     print(f"[PROXY-EXHAUSTED] {email_addr} | {proxy_switches} proxies failed → web fallback", flush=True)
                     if proxy:
                         pool.release(proxy)
@@ -265,7 +227,6 @@ def run_account(
                                                   error="Proxy exhausted, no captcha key")
                     return
                 else:
-                    # Connection error (non-proxy) → retry
                     attempt += 1
                     if attempt >= RETRY_MAX:
                         _handle_conn_error(proxy, pool, err)
@@ -274,7 +235,6 @@ def run_account(
                     time.sleep(2 ** attempt)
                     continue
 
-        # ── Select outbox ─────────────────────────────────────
         status, _ = mail.select(f'"{SENT_FOLDER}"')
         if status != "OK":
             user_state.update_account(email_addr,
@@ -290,17 +250,15 @@ def run_account(
         images_found = 0
         manifest_rows: list[dict] = []
 
-        # ── Fetch in batches ──────────────────────────────────
         for b_start in range(0, total, BATCH_SIZE):
-            if stop_event.is_set():
-                user_state.update_account(email_addr, status="stopped")
+            if stop_event.is_set() or user_state.accounts.get(email_addr, {}).get("status") == "stopped":
+                user_state.update_account(email_addr, status="stopped", error="Đã dừng phiên quét")
                 return
 
             batch = all_ids[b_start: b_start + BATCH_SIZE]
             batch_str = b','.join(batch)
             
             try:
-                # 1. Fetch BODYSTRUCTURE và thông tin Header cơ bản
                 t_fetch = time.time()
                 status, msg_data_list = mail.fetch(batch_str, "(BODYSTRUCTURE BODY.PEEK[HEADER.FIELDS (DATE TO)])")
                 t_elapsed = time.time() - t_fetch
@@ -336,18 +294,14 @@ def run_account(
                     parsed_bs = _parse_imap_list(bs_str)
                     parts_info = _find_parts(parsed_bs)
                     
-                    # Lọc những phần có MIME type được phép
                     target_parts = [p for p in parts_info if p[1] in ALLOWED_MIME]
                     
                     att_i = 0
                     for part_num, mime, p_info in target_parts:
-                        # Tối ưu băng thông Proxy: Lấy dung lượng file TỪ HEADER để quyết định tải hay bỏ qua
                         size_bytes = _get_part_size(p_info)
-                        # Bỏ qua file bé hơn 10KB (icon mạng xã hội, pixel) hoặc lớn hơn 15MB (treo cứng proxy)
                         if size_bytes != -1 and (size_bytes < 10_000 or size_bytes > 15_000_000):
                             continue
 
-                        # 2. Fetch CHỈ những bytes của part đính kèm (không tải toàn bộ)
                         try:
                             s2, pd_list = mail.fetch(str(mail_no).encode(), f"(BODY.PEEK[{part_num}])")
                             if s2 != "OK" or not pd_list or not isinstance(pd_list[0], tuple):
@@ -355,14 +309,10 @@ def run_account(
                                 
                             part_bytes = pd_list[0][1]
                             
-                            # Parse sub-message payload
                             sub_msg = message_from_bytes(b"Content-Transfer-Encoding: base64\r\n\r\n" + part_bytes)
-                            # Fallback if not base64? IMAP usually encodes base64 for images
-                            # We can force base64 decode if the body isn't parsed properly
                             payload = sub_msg.get_payload(decode=True)
                             if not payload:
                                 import base64
-                                # Cleanup IMAP wrapping
                                 raw_p = part_bytes.replace(b'\r', b'').replace(b'\n', b'')
                                 try:
                                     payload = base64.b64decode(raw_p)
@@ -372,10 +322,7 @@ def run_account(
                             print(f"[IMAP] Lỗi tải part {part_num} của mail {mail_no}: {e}")
                             continue
 
-                        # Extract filename from parsed BODYSTRUCTURE info if available
                         orig = ""
-                        # p_info is ['image', 'jpeg', ['name', 'file.jpg'], ...]
-                        # Search for "name" or "filename"
                         for i in range(len(p_info)):
                             if isinstance(p_info[i], list) and len(p_info[i]) >= 2:
                                 if isinstance(p_info[i][0], str) and p_info[i][0].lower() in ('name', 'filename'):
@@ -391,7 +338,6 @@ def run_account(
                         dest    = raw_dir / f"mail_{mail_no:04d}_{fname}"
                         
                         dest.write_bytes(payload)
-                        # Push to AI Queue
                         ai_queue.put((email_addr, str(dest), mime, user_state.user_id))
                         images_found += 1
                         manifest_rows.append({
@@ -409,19 +355,15 @@ def run_account(
                                              last_file=fname)
                         user_state.inc("images_total")
                         
-                    # Cập nhật tiến độ mượt mà từng mail thay vì đợi hết batch
                     current_processed += 1
                     user_state.update_account(email_addr, processed=current_processed)
 
             except Exception as e:
-                # Nếu batch bị lỗi (do 1 thư quá lớn gây nghẽn RAM), bỏ qua
                 print(f"[IMAP] Batch fetch error for {email_addr}: {e}")
 
-            # Chốt sổ lại số tròn trịa cuối batch
             current_processed = min(b_start + BATCH_SIZE, total)
             user_state.update_account(email_addr, processed=current_processed)
 
-        # ── Write manifest ────────────────────────────────────
         _write_manifest(raw_dir.parent / "manifest.csv", manifest_rows)
 
         user_state.update_account(email_addr, status="done")
@@ -441,9 +383,6 @@ def run_account(
             except Exception:
                 pass
 
-
-# ── Helpers ───────────────────────────────────────────────────
-
 def _handle_auth_error(proxy, pool, err: str):
     if proxy:
         if "rate" in err.lower() or "too many" in err.lower():
@@ -451,11 +390,9 @@ def _handle_auth_error(proxy, pool, err: str):
         else:
             pool.mark_blocked(proxy, err)
 
-
 def _handle_conn_error(proxy, pool, err: str):
     if proxy:
         pool.mark_dead(proxy, err)
-
 
 def _write_manifest(path: Path, rows: list[dict]):
     if not rows:

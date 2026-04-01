@@ -1,13 +1,3 @@
-"""
-Libero Webmail client — bypass IMAP using web login + OX App Suite API.
-
-Flow:
-  1. Solve reCAPTCHA v2 via 2Captcha
-  2. POST login.libero.it/logincheck.php (email + captcha)
-  3. POST logincheck.php (email + password)
-  4. Follow redirect → mail1.libero.it/appsuite/api/login
-  5. Use OX App Suite API to list sent mail + download attachments
-"""
 
 import re
 import time
@@ -18,18 +8,9 @@ from typing import Optional
 from core.config import ALLOWED_MIME, OUTPUT_DIR
 from core.captcha_solver import solve_recaptcha_v2, CaptchaError
 
-
-# ── OX App Suite mail columns ────────────────────────────────
-# https://documentation.open-xchange.com/
-# 600=id, 601=folder_id, 602=attachment, 603=from, 604=to,
-# 607=subject, 609=date, 610=size, 651=has_attachment
 MAIL_COLUMNS = "600,601,602,603,604,607,609,610,651"
 
-
 class LiberoWebClient:
-    """
-    Stateful client: login once, reuse session for all API calls.
-    """
 
     BASE_LOGIN = "https://login.libero.it"
     BASE_MAIL  = "https://mail1.libero.it"
@@ -44,28 +25,19 @@ class LiberoWebClient:
         })
         if proxy:
             self.session.proxies = proxy
-        self.ox_session = None  # OX session token
+        self.ox_session = None
         self.email = None
 
-    # ── LOGIN ─────────────────────────────────────────────────
-
     def login(self, email: str, password: str) -> bool:
-        """
-        Full Libero login flow with reCAPTCHA solving.
-        Returns True on success, raises on failure.
-        """
         self.email = email
         print(f"[WEB-LOGIN] {email} | Bắt đầu web login...", flush=True)
 
-        # Step 0: Load login page to get cookies
         self.session.get(f"{self.BASE_LOGIN}/", timeout=15)
 
-        # Step 1: Solve reCAPTCHA v2
         print(f"[WEB-LOGIN] {email} | Đang giải reCAPTCHA v2...", flush=True)
         captcha_token = solve_recaptcha_v2(self.captcha_api_key)
         print(f"[WEB-LOGIN] {email} | ✓ CAPTCHA solved", flush=True)
 
-        # Step 2: POST email + captcha (step 1 of login form)
         resp = self.session.post(
             f"{self.BASE_LOGIN}/logincheck.php",
             data={
@@ -79,12 +51,9 @@ class LiberoWebClient:
         )
         print(f"[WEB-LOGIN] {email} | Step1 status={resp.status_code} url={resp.url}", flush=True)
 
-        # Check if we need password step
         if resp.status_code != 200:
             raise WebLoginError(f"Login step1 failed: HTTP {resp.status_code}")
 
-        # Step 3: POST password to /keycheck.php (NOT /logincheck.php!)
-        # Libero requires browser fingerprint fields alongside credentials
         resp2 = self.session.post(
             f"{self.BASE_LOGIN}/keycheck.php",
             data={
@@ -110,13 +79,8 @@ class LiberoWebClient:
         )
         print(f"[WEB-LOGIN] {email} | Step2 status={resp2.status_code} url={resp2.url}", flush=True)
 
-        # Step 4: After keycheck.php → 302 → inters_adv.phtml (interstitial ad page)
-        # The interstitial page has ret_url param. We need to follow the SSO chain:
-        #   inters_adv.phtml → /?service_id=appsuite&ret_url=... → mail1.libero.it/appsuite/api/login
         
-        # If we landed on inters_adv.phtml, extract ret_url and follow manually
         if "inters_adv" in resp2.url or resp2.status_code == 200:
-            # Extract ret_url from the page or from URL params
             ret_url = None
             ret_m = re.search(r'ret_url=([^&\s"\']+)', resp2.url)
             if ret_m:
@@ -124,7 +88,6 @@ class LiberoWebClient:
                 ret_url = unquote(ret_m.group(1))
             
             if not ret_url:
-                # Try to find it in the page body
                 ret_m = re.search(r'ret_url[=:]\s*["\']?([^"\'&\s>]+)', resp2.text or "")
                 if ret_m:
                     from urllib.parse import unquote
@@ -135,8 +98,6 @@ class LiberoWebClient:
             
             print(f"[WEB-LOGIN] {email} | Step3 interstitial → following ret_url", flush=True)
 
-        # Step 5: Navigate to /?service_id=appsuite to trigger SSO redirect chain
-        # This sets up the SSO cookies for mail1.libero.it
         resp3 = self.session.get(
             f"{self.BASE_LOGIN}/",
             params={
@@ -148,8 +109,6 @@ class LiberoWebClient:
         )
         print(f"[WEB-LOGIN] {email} | Step4 SSO status={resp3.status_code} url={resp3.url}", flush=True)
 
-        # Step 6: Follow the OX login endpoint — this should give us the session
-        # mail1.libero.it/appsuite/api/login?action=liberoLogin → 302 with ssonc
         resp4 = self.session.get(
             f"{self.BASE_MAIL}/appsuite/api/login",
             params={"action": "liberoLogin"},
@@ -158,14 +117,11 @@ class LiberoWebClient:
         )
         print(f"[WEB-LOGIN] {email} | Step5 OX login status={resp4.status_code} url={resp4.url}", flush=True)
         
-        # Extract OX session from the response chain
         self._extract_ox_session(resp4)
         
-        # Also check resp3 in case session was set there
         if not self.ox_session:
             self._extract_ox_session(resp3)
         
-        # Check all redirect history for session token
         if not self.ox_session:
             for r in resp4.history + resp3.history:
                 if "session=" in r.url:
@@ -189,8 +145,6 @@ class LiberoWebClient:
             raise WebLoginError(f"Cannot extract OX session after login")
 
     def _extract_ox_session(self, resp):
-        """Try to extract OX session from JSON response, URL, or cookies."""
-        # From JSON body
         try:
             data = resp.json()
             if "session" in data:
@@ -199,30 +153,21 @@ class LiberoWebClient:
         except Exception:
             pass
 
-        # From URL params
         if "session=" in resp.url:
             m = re.search(r'session=([^&]+)', resp.url)
             if m:
                 self.ox_session = m.group(1)
                 return
 
-        # From cookies
         for cookie in self.session.cookies:
             if "session" in cookie.name.lower() and cookie.value:
                 self.ox_session = cookie.value
                 return
 
-    # ── LIST SENT EMAILS ──────────────────────────────────────
-
     def list_sent_folder(self) -> list[dict]:
-        """
-        Get all emails from sent/outbox folder.
-        Returns list of email metadata dicts.
-        """
         if not self.ox_session:
             raise WebLoginError("Not logged in")
 
-        # First, find the sent folder
         print(f"[WEB-API] {self.email} | Đang tìm folder sent...", flush=True)
         folders = self._api("folders", action="list", parent="default0",
                             columns="1,300,301,302,304", tree="0")
@@ -232,9 +177,7 @@ class LiberoWebClient:
             print(f"[WEB-API] {self.email} | Folders found: {len(folders)}", flush=True)
             for f in folders:
                 if isinstance(f, list) and len(f) >= 2:
-                    # Log each folder for debugging
                     print(f"[WEB-API] {self.email} |   folder: {f[:3]}", flush=True)
-                    # Check for sent/outbox folders
                     for fname_check in f:
                         if isinstance(fname_check, str) and fname_check.lower() in (
                             "sent", "outbox", "posta inviata", "inviata", "inviati",
@@ -249,7 +192,6 @@ class LiberoWebClient:
             print(f"[WEB-API] {self.email} | Folders response type: {type(folders)}, val: {str(folders)[:300]}", flush=True)
 
         if not sent_folder_id:
-            # Try standard OX folder IDs directly
             for try_folder in ["default0/Sent", "default0/INBOX.Sent",
                                 "default0/INBOX.outbox", "default0/outbox",
                                 "default0/Posta inviata", "default0/INBOX.Posta inviata"]:
@@ -269,17 +211,15 @@ class LiberoWebClient:
 
         self._sent_folder_id = sent_folder_id
 
-        # Fetch all emails from sent folder
         all_mails = []
         offset = 0
         batch_size = 50
 
         while True:
-            # OX API limit using startIndex,endIndex -> e.g limit="0,50" then "50,100"
             mails = self._api("mail", action="all", folder=sent_folder_id,
                               columns=MAIL_COLUMNS,
                               limit=f"{offset},{offset + batch_size}",
-                              sort="609", order="desc")  # Sort by date desc
+                              sort="609", order="desc")
 
             if not mails or not isinstance(mails, list) or len(mails) == 0:
                 break
@@ -293,15 +233,11 @@ class LiberoWebClient:
         print(f"[WEB-API] {self.email} | Tìm thấy {len(all_mails)} email trong {sent_folder_id}", flush=True)
         return all_mails
 
-    # ── GET MAIL + ATTACHMENTS ─────────────────────────────────
-
     def get_mail_detail(self, folder: str, mail_id: str) -> dict:
-        """Get full mail detail including attachments list."""
         return self._api("mail", action="get", folder=folder, id=mail_id)
 
     def download_attachment(self, folder: str, mail_id: str,
                             attachment_id: str) -> bytes:
-        """Download raw attachment bytes."""
         url = f"{self.BASE_MAIL}/appsuite/api/mail"
         resp = self.session.get(url, params={
             "action": "attachment",
@@ -313,10 +249,7 @@ class LiberoWebClient:
         resp.raise_for_status()
         return resp.content
 
-    # ── INTERNAL API CALL ─────────────────────────────────────
-
     def _api(self, module: str, **params):
-        """Call OX App Suite API and return JSON data with retries."""
         params["session"] = self.ox_session
         url = f"{self.BASE_MAIL}/appsuite/api/{module}"
 
@@ -331,7 +264,6 @@ class LiberoWebClient:
                     data = resp.json()
                 except Exception as je:
                     print(f"[OX-API] {module} NOT JSON (attempt {attempt+1}): {resp.text[:300]}", flush=True)
-                    # Force raise to trigger the retry except block below
                     raise WebApiError(f"Extra data / non-JSON: {je}")
 
                 if "error" in data:
@@ -341,7 +273,6 @@ class LiberoWebClient:
                 return data.get("data", data)
                 
             except Exception as e:
-                # Do not retry on explicit OX API logical errors
                 if "OX API error" in str(e):
                     raise
                 if attempt == max_retries - 1:
@@ -350,16 +281,11 @@ class LiberoWebClient:
                 print(f"[OX-API] Lỗi {e}, thử lại {attempt+1}/{max_retries}...", flush=True)
                 time.sleep(2)
 
-
 class WebLoginError(Exception):
     pass
 
-
 class WebApiError(Exception):
     pass
-
-
-# ── Standalone scan function (called from worker) ────────────
 
 def scan_account_web(
     email_addr: str,
@@ -369,10 +295,6 @@ def scan_account_web(
     stop_event,
     proxy_dict: Optional[dict] = None,
 ):
-    """
-    Web-based fallback scanner for accounts blocked on IMAP.
-    Same output as IMAP scanner: downloads attachments → pushes to AI queue.
-    """
     from core.classifier import ai_queue
 
     slug = re.sub(r'[^\w]', '_', email_addr.split("@")[0])
@@ -387,30 +309,26 @@ def scan_account_web(
     client = None
 
     try:
-        # 1. Login with captcha retry
         for captcha_attempt in range(1, MAX_CAPTCHA_RETRIES + 1):
             try:
                 client = LiberoWebClient(captcha_api_key, proxy=proxy_dict)
                 client.login(email_addr, password)
-                break  # Login OK
+                break
             except CaptchaError as ce:
                 print(f"[WEB-LOGIN] {email_addr} | Captcha lần {captcha_attempt}/{MAX_CAPTCHA_RETRIES} thất bại: {ce}", flush=True)
                 if captcha_attempt >= MAX_CAPTCHA_RETRIES:
-                    raise  # All retries exhausted
+                    raise
                 user_state.update_account(email_addr, error=f"Captcha retry {captcha_attempt+1}/{MAX_CAPTCHA_RETRIES}...")
                 continue
             except WebLoginError as wle:
                 err_msg = str(wle).lower()
                 if any(k in err_msg for k in ["authen", "password", "credential", "blocked"]):
-                    # Auth error — skip, don't retry
                     raise
-                # Other login errors — retry
                 print(f"[WEB-LOGIN] {email_addr} | Login lần {captcha_attempt}/{MAX_CAPTCHA_RETRIES} lỗi: {wle}", flush=True)
                 if captcha_attempt >= MAX_CAPTCHA_RETRIES:
                     raise
                 continue
             except Exception as ge:
-                # Catch requests.exceptions.ConnectionError, JSONDecodeError, etc. inside login
                 print(f"[WEB-LOGIN] {email_addr} | Lỗi mạng/ngoại lệ lần {captcha_attempt}/{MAX_CAPTCHA_RETRIES}: {ge}", flush=True)
                 if captcha_attempt >= MAX_CAPTCHA_RETRIES:
                     raise WebLoginError(f"System/Network error: {ge}")
@@ -419,11 +337,10 @@ def scan_account_web(
 
         user_state.update_account(email_addr, error="Web login OK, đang quét...")
 
-        if stop_event.is_set():
-            user_state.update_account(email_addr, status="stopped")
+        if stop_event.is_set() or user_state.accounts.get(email_addr, {}).get("status") == "stopped":
+            user_state.update_account(email_addr, status="stopped", error="Đã dừng phiên quét")
             return
 
-        # 2. List sent folder
         mails = client.list_sent_folder()
         total = len(mails)
         user_state.update_account(email_addr, total_mail=total)
@@ -431,14 +348,12 @@ def scan_account_web(
         images_found = 0
         manifest_rows = []
 
-        # 3. Process each email
         for idx, mail_meta in enumerate(mails):
-            if stop_event.is_set():
-                user_state.update_account(email_addr, status="stopped")
+            if stop_event.is_set() or user_state.accounts.get(email_addr, {}).get("status") == "stopped":
+                user_state.update_account(email_addr, status="stopped", error="Đã dừng phiên quét")
                 return
 
             try:
-                # mail_meta is a list: [id, folder, attachment, from, to, subject, date, size, has_att]
                 if isinstance(mail_meta, list) and len(mail_meta) >= 2:
                     mail_id = str(mail_meta[0])
                     folder = str(mail_meta[1])
@@ -448,17 +363,14 @@ def scan_account_web(
                     user_state.update_account(email_addr, processed=idx + 1)
                     continue
 
-                # Debug: log first email structure
                 if idx == 0:
                     print(f"[WEB-SCAN] {email_addr} | mail_meta[0] = {str(mail_meta)[:300]}", flush=True)
 
-                # Get mail detail for attachments
                 detail = client.get_mail_detail(folder, mail_id)
                 if not detail:
                     user_state.update_account(email_addr, processed=idx + 1)
                     continue
 
-                # Debug: log first detail structure
                 if idx == 0:
                     detail_keys = list(detail.keys()) if isinstance(detail, dict) else f"type={type(detail)}"
                     print(f"[WEB-SCAN] {email_addr} | detail keys = {detail_keys}", flush=True)
@@ -486,19 +398,15 @@ def scan_account_web(
                     else:
                         continue
 
-                    # Debug: log first attachment MIME check
                     if idx < 3:
                         print(f"[WEB-SCAN] {email_addr} | att mime={mime} id={att_id} fn={filename} size={size} allowed={mime in ALLOWED_MIME}", flush=True)
 
-                    # Filter by allowed MIME types
                     if mime not in ALLOWED_MIME:
                         continue
 
-                    # Skip too small (<10KB) or too large (>15MB)
                     if size and (size < 10_000 or size > 15_000_000):
                         continue
 
-                    # Download
                     try:
                         content = client.download_attachment(folder, mail_id, att_id)
                         if not content or len(content) < 1000:
@@ -508,7 +416,6 @@ def scan_account_web(
                         dest = raw_dir / f"mail_{idx:04d}_{fname}"
                         dest.write_bytes(content)
 
-                        # Push to AI queue
                         ai_queue.put((email_addr, str(dest), mime, user_state.user_id))
                         images_found += 1
                         manifest_rows.append({
@@ -534,7 +441,6 @@ def scan_account_web(
 
             user_state.update_account(email_addr, processed=idx + 1)
 
-        # 4. Write manifest
         if manifest_rows:
             import csv
             manifest_path = raw_dir.parent / "manifest.csv"
@@ -556,8 +462,6 @@ def scan_account_web(
         user_state.inc("accounts_failed")
         print(f"[WEB-API] {email_addr} | ✗ Unexpected: {e}", flush=True)
 
-
 def _safe_name(name: str) -> str:
-    """Sanitize filename."""
     name = re.sub(r'[<>:"/\\|?*]', '_', name)
     return name[:200] if name else "unnamed"

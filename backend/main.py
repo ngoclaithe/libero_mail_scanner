@@ -1,13 +1,7 @@
-"""
-Libero Mail Scanner — FastAPI + Uvicorn Backend
-Replaces the previous Flask monolith.
-"""
 
 import os
 import sys
 
-# Giới hạn số lượng thread cho ONNX / OpenMP / BLAS
-# Tránh tình trạng 1 thư viện chiếm 100% CPU trên VPS nhiều core
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
@@ -35,13 +29,10 @@ from auth import (
 from core.scanner import scanner_manager
 from core.config import OUTPUT_DIR
 
-# ── Init ──────────────────────────────────────────────────────
-
 init_db()
 
 app = FastAPI(title="Libero Mail Scanner API", version="2.0.0")
 
-# CORS
 origins = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
 app.add_middleware(
     CORSMiddleware,
@@ -51,14 +42,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Request Logging Middleware ─────────────────────────────────
-
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    # Skip logging for static/media paths
     if not request.url.path.startswith(("/media", "/docs", "/openapi")):
         try:
-            # Try to get user from token (non-blocking)
             user_id = None
             auth = request.headers.get("authorization", "")
             if auth.startswith("Bearer "):
@@ -87,9 +74,6 @@ async def log_requests(request: Request, call_next):
     response = await call_next(request)
     return response
 
-
-# ── Pydantic Models ───────────────────────────────────────────
-
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -102,10 +86,7 @@ class CreateUserRequest(BaseModel):
 class UpdateCreditsRequest(BaseModel):
     user_id: int
     amount: int
-    action: str  # "add" or "set"
-
-
-# ── Auth Routes ───────────────────────────────────────────────
+    action: str
 
 @app.post("/api/auth/login", response_model=TokenResponse)
 async def login(req: LoginRequest):
@@ -132,7 +113,6 @@ async def login(req: LoginRequest):
         }
     )
 
-
 @app.get("/api/auth/me")
 async def get_me(current_user: TokenData = Depends(get_current_user)):
     return {
@@ -142,9 +122,6 @@ async def get_me(current_user: TokenData = Depends(get_current_user)):
         "credits": current_user.credits,
     }
 
-
-# ── Scanner API ───────────────────────────────────────────────
-# All users share one scanner (single VPS, shared state)
 SHARED_SCANNER_ID = 1
 
 @app.get("/api/state")
@@ -152,20 +129,29 @@ async def api_state(current_user: TokenData = Depends(get_current_user)):
     sc = scanner_manager.get_scanner(SHARED_SCANNER_ID)
     return sc.get_state()
 
-
 @app.post("/api/start")
 async def api_start(current_user: TokenData = Depends(get_current_user)):
     sc = scanner_manager.get_scanner(SHARED_SCANNER_ID)
     ok, msg = sc.start()
     return {"ok": ok, "msg": msg}
 
-
 @app.post("/api/stop")
 async def api_stop(current_user: TokenData = Depends(get_current_user)):
-    sc = scanner_manager.get_scanner(SHARED_SCANNER_ID)
-    sc.stop()
-    return {"ok": True, "msg": "Stop signal sent"}
+    from core.scanner import scanner_manager
+    scanner_manager.stop_scanner(current_user.id)
+    return {"ok": True, "msg": "■ Lệnh dừng đã được gửi! Chờ luồng xử lý..."}
 
+class StopEmailRequest(BaseModel):
+    email: str
+
+@app.post("/api/stop-email")
+async def api_stop_email(req: StopEmailRequest, current_user: TokenData = Depends(get_current_user)):
+    from core.scanner import scanner_manager
+    scanner = scanner_manager.get_scanner(current_user.id)
+    if not scanner:
+        return {"ok": False, "msg": "Không có phiên quét nào đang chạy."}
+    scanner.state.update_account(req.email, status="stopped", error="Đã dừng theo yêu cầu người dùng")
+    return {"ok": True, "msg": f"■ Lệnh dừng đã gửi cho {req.email}"}
 
 @app.post("/api/upload-accounts")
 async def api_upload(
@@ -177,7 +163,6 @@ async def api_upload(
     if not file.filename.lower().endswith((".csv", ".txt")):
         raise HTTPException(400, "Only .csv or .txt")
 
-    # ── Save shared accounts file ──
     save_path = f"accounts_{SHARED_SCANNER_ID}.csv"
     content = await file.read()
     with open(save_path, "wb") as f:
@@ -188,7 +173,6 @@ async def api_upload(
     preview = sc.accounts_preview()
     count = len(preview)
 
-    # ── Check credits ──
     db = get_db()
     user = db.execute(
         "SELECT credits, role FROM users WHERE id=?",
@@ -217,7 +201,6 @@ async def api_upload(
         "preview": preview[:5],
     }
 
-
 class AccountItem(BaseModel):
     email: str
     password: str
@@ -225,26 +208,21 @@ class AccountItem(BaseModel):
 class SaveAccountsRequest(BaseModel):
     accounts: List[AccountItem]
 
-
 @app.get("/api/accounts")
 async def api_get_accounts(current_user: TokenData = Depends(get_current_user)):
-    """Return the current account list for this user."""
     sc = scanner_manager.get_scanner(SHARED_SCANNER_ID)
     accounts = sc._load_accounts()
     return {"accounts": accounts}
-
 
 @app.post("/api/accounts/save")
 async def api_save_accounts(
     req: SaveAccountsRequest,
     current_user: TokenData = Depends(get_current_user),
 ):
-    """Save accounts from JSON (edited in modal). Deducts credits."""
     count = len(req.accounts)
     if count == 0:
         raise HTTPException(400, "Danh sách rỗng")
 
-    # Check credits
     db = get_db()
     user = db.execute(
         "SELECT credits, role FROM users WHERE id=?",
@@ -265,7 +243,6 @@ async def api_save_accounts(
         db.commit()
     db.close()
 
-    # Save to file
     save_path = f"accounts_{SHARED_SCANNER_ID}.csv"
     with open(save_path, "w", encoding="utf-8") as f:
         for acc in req.accounts:
@@ -279,7 +256,6 @@ async def api_save_accounts(
         "msg": f"Đã lưu {count} accounts. Trừ {count if user['role'] != 'admin' else 0} credits.",
         "count": count,
     }
-
 
 @app.post("/api/upload-proxies")
 async def api_upload_proxies(
@@ -305,7 +281,6 @@ async def api_upload_proxies(
         "count": len(sc.pool) if sc.pool else 0
     }
 
-
 class ProxyItem(BaseModel):
     host: str
     port: int
@@ -315,10 +290,8 @@ class ProxyItem(BaseModel):
 class SaveProxiesRequest(BaseModel):
     proxies: List[ProxyItem]
 
-
 @app.get("/api/proxies")
 async def api_get_proxies(current_user: TokenData = Depends(get_current_user)):
-    """Return the current proxy list for this user (from file)."""
     sc = scanner_manager.get_scanner(SHARED_SCANNER_ID)
     proxy_file = sc._proxy_file
     proxies = []
@@ -340,13 +313,11 @@ async def api_get_proxies(current_user: TokenData = Depends(get_current_user)):
         pass
     return {"proxies": proxies}
 
-
 @app.post("/api/proxies/save")
 async def api_save_proxies(
     req: SaveProxiesRequest,
     current_user: TokenData = Depends(get_current_user),
 ):
-    """Save proxies from JSON (edited in modal)."""
     count = len(req.proxies)
     if count == 0:
         raise HTTPException(400, "Danh sách rỗng")
@@ -365,9 +336,6 @@ async def api_save_proxies(
         "count": count,
     }
 
-
-# ── Captcha Settings ──────────────────────────────────────────
-
 @app.on_event("startup")
 async def startup_event():
     db = get_db()
@@ -377,14 +345,11 @@ async def startup_event():
         import core.config as cfg
         cfg.CAPTCHA_API_KEY = row["value"]
 
-
 class CaptchaKeyRequest(BaseModel):
     api_key: str
 
-
 @app.get("/api/captcha-key")
 async def api_get_captcha_key(current_user: TokenData = Depends(get_current_user)):
-    """Check if Capsolver API key is configured."""
     db = get_db()
     row = db.execute("SELECT value FROM settings WHERE key_name='CAPTCHA_API_KEY'").fetchone()
     db.close()
@@ -394,29 +359,24 @@ async def api_get_captcha_key(current_user: TokenData = Depends(get_current_user
         "key_preview": key[:8] + "..." if key and len(key) > 8 else "",
     }
 
-
 @app.post("/api/captcha-key")
 async def api_set_captcha_key(
     req: CaptchaKeyRequest,
     current_user: TokenData = Depends(get_current_user),
 ):
-    """Set Capsolver API key. Validates balance before saving."""
     key = req.api_key.strip()
     if not key:
         raise HTTPException(400, "API key rỗng")
 
-    # Validate key by checking balance
     try:
         from core.captcha_solver import check_balance
         balance = check_balance(key)
     except Exception as e:
         raise HTTPException(400, f"API key không hợp lệ: {e}")
 
-    # Save to config module at runtime
     import core.config as cfg
     cfg.CAPTCHA_API_KEY = key
 
-    # Save to database
     db = get_db()
     db.execute("REPLACE INTO settings (key_name, value) VALUES (?, ?)", ("CAPTCHA_API_KEY", key))
     db.commit()
@@ -454,10 +414,8 @@ async def api_gallery(current_user: TokenData = Depends(get_current_user)):
             res[slug] = {"raw": raw_files, "documents": doc_files}
     return res
 
-
 class GalleryBulkRequest(BaseModel):
-    files: List[str]  # e.g. "email@x.com/documents/abc.jpg"
-
+    files: List[str]
 
 @app.post("/api/gallery/delete")
 async def api_gallery_delete(req: GalleryBulkRequest, current_user: TokenData = Depends(get_current_user)):
@@ -466,7 +424,6 @@ async def api_gallery_delete(req: GalleryBulkRequest, current_user: TokenData = 
     for file_path in req.files:
         try:
             full_path = (OUTPUT_DIR / file_path).resolve()
-            # Security: Prevent path traversal
             if not str(full_path).startswith(str(base_dir)):
                 continue
             if full_path.exists() and full_path.is_file():
@@ -506,7 +463,6 @@ async def api_gallery_download(req: GalleryBulkRequest, current_user: TokenData 
                 if not str(full_path).startswith(str(base_dir)):
                     continue
                 if full_path.exists() and full_path.is_file():
-                    # Archive as slug/filename to avoid collision
                     parts = Path(file_path).parts
                     arcname = f"{parts[0]}_{parts[-1]}" if len(parts) > 1 else full_path.name
                     zipf.write(full_path, arcname)
@@ -520,12 +476,8 @@ async def api_gallery_download(req: GalleryBulkRequest, current_user: TokenData 
         headers={"Content-Disposition": "attachment; filename=libero_images.zip"}
     )
 
-
-# ── Media serving ─────────────────────────────────────────────
-
 @app.get("/media/{filepath:path}")
 async def serve_media(filepath: str, token: str = ""):
-    """Serve media files. Token is passed via query param since <img> tags can't send headers."""
     if not token:
         raise HTTPException(401, "Missing token")
     try:
@@ -544,9 +496,6 @@ async def serve_media(filepath: str, token: str = ""):
         raise HTTPException(404, "File not found")
     return FileResponse(full_path)
 
-
-# ── Admin Routes ──────────────────────────────────────────────
-
 @app.get("/api/admin/users")
 async def admin_users(admin: TokenData = Depends(require_admin)):
     db = get_db()
@@ -554,18 +503,12 @@ async def admin_users(admin: TokenData = Depends(require_admin)):
     db.close()
     return [dict(u) for u in users]
 
-
 @app.get("/api/admin/logs")
 async def admin_logs(admin: TokenData = Depends(require_admin)):
     db = get_db()
-    logs = db.execute("""
-        SELECT logs.id, logs.ip, logs.endpoint, logs.created_at, users.username 
-        FROM logs LEFT JOIN users ON logs.user_id = users.id 
-        ORDER BY logs.created_at DESC LIMIT 100
-    """).fetchall()
+    logs = db.execute().fetchall()
     db.close()
     return [dict(l) for l in logs]
-
 
 @app.post("/api/admin/create_user")
 async def admin_create_user(
@@ -584,7 +527,6 @@ async def admin_create_user(
     except Exception:
         raise HTTPException(400, "Lỗi: Tên đăng nhập này có thể đã tồn tại.")
 
-
 @app.post("/api/admin/update_credits")
 async def admin_update_credits(
     req: UpdateCreditsRequest,
@@ -599,18 +541,12 @@ async def admin_update_credits(
     db.close()
     return {"ok": True, "msg": "Cập nhật credits thành công"}
 
-
-# ── Backup Endpoints ──────────────────────────────────────────
-
 @app.get("/api/data_backup.tar.gz")
 async def get_data_backup():
     file_path = "data_backup.tar.gz"
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File data_backup.tar.gz không tồn tại. Hãy chạy lệnh tar trước!")
     return FileResponse(file_path, filename="data_backup.tar.gz", media_type="application/gzip")
-
-
-# ── Startup ───────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import uvicorn

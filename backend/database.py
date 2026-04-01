@@ -3,15 +3,12 @@ import os
 
 DB_PATH = os.getenv("DB_PATH", "data.db")
 
-
 def _hash_password(password: str) -> str:
-    """Hash password using PBKDF2-SHA256 - same as auth.py"""
     import hashlib
     import secrets
     salt = secrets.token_hex(16)
     h = hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 260000)
     return f"pbkdf2:sha256:260000${salt}${h.hex()}"
-
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -35,13 +32,11 @@ def init_db():
         value TEXT
     )''')
 
-    # Create default admin if not exists
     c.execute("SELECT id FROM users WHERE username='admin'")
     if not c.fetchone():
         c.execute("INSERT INTO users (username, password, role, credits) VALUES (?, ?, ?, ?)",
                   ('admin', _hash_password('admin123'), 'admin', 999999))
 
-    # Create default user if not exists
     c.execute("SELECT id FROM users WHERE username='user'")
     if not c.fetchone():
         c.execute("INSERT INTO users (username, password, role, credits) VALUES (?, ?, ?, ?)",
@@ -49,7 +44,6 @@ def init_db():
 
     conn.commit()
     conn.close()
-
 
 def get_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)

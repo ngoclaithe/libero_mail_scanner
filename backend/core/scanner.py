@@ -1,7 +1,3 @@
-"""
-Scanner: orchestrates the ThreadPoolExecutor.
-Per-user scanner — each user has their own accounts file, state, and run.
-"""
 
 import csv
 import threading
@@ -19,9 +15,7 @@ try:
 except ImportError as e:
     print(f"[SCANNER] ✗ classifier import FAILED: {e}", flush=True)
 
-
 class Scanner:
-    """Per-user scanner instance."""
 
     def __init__(self, user_id: int):
         self.user_id    = user_id
@@ -30,10 +24,8 @@ class Scanner:
         self.pool:      Optional[ProxyPool]        = None
         self._acc_file: str = ACCOUNTS_FILE
         self._proxy_file: str = PROXY_FILE
-        self.state      = AppState(user_id=user_id)   # Per-user state
+        self.state      = AppState(user_id=user_id)
         self._reload_pool()
-
-    # ── Public API ────────────────────────────────────────────
 
     def set_accounts_file(self, path: str):
         self._acc_file = path
@@ -54,7 +46,7 @@ class Scanner:
             return False, f"No accounts found in {self._acc_file}"
 
         self._stop.clear()
-        self._reload_pool()   # fresh proxy statuses on each run
+        self._reload_pool()
         self.state.reset()
         self.state.set_status("running")
         self.state.init_accounts([a["email"] for a in accounts])
@@ -88,8 +80,6 @@ class Scanner:
         snap["proxies"] = self.pool.all_info() if self.pool else []
         return snap
 
-    # ── Runner ────────────────────────────────────────────────
-
     def _run(self, accounts: list):
         with ThreadPoolExecutor(
             max_workers=MAX_WORKERS,
@@ -117,8 +107,6 @@ class Scanner:
         except NameError:
             pass
 
-    # ── Helpers ───────────────────────────────────────────────
-
     def _reload_pool(self):
         try:
             self.pool = ProxyPool(self._proxy_file)
@@ -137,7 +125,6 @@ class Scanner:
         if not lines:
             return rows
             
-        # Try CSV first if it has header
         first_line = lines[0].lower()
         if "email" in first_line and "password" in first_line:
             import csv
@@ -149,7 +136,6 @@ class Scanner:
                     rows.append({"email": email, "password": pwd})
             return rows
 
-        # Fallback: plain text, split by first ":" only (email:password)
         for line in lines:
             if ':' not in line:
                 continue
@@ -159,34 +145,22 @@ class Scanner:
                 rows.append({"email": email, "password": pwd})
         return rows
 
-
 class ScannerManager:
-    """
-    Manages per-user Scanner instances.
-    Each user gets their own isolated scanner with its own:
-      - accounts file
-      - state (progress, status, accounts)
-      - stop event
-    """
 
     def __init__(self):
         self._lock = threading.Lock()
         self._scanners: dict[int, Scanner] = {}
 
     def get_scanner(self, user_id: int) -> Scanner:
-        """Get or create a scanner for the given user."""
         with self._lock:
             if user_id not in self._scanners:
                 self._scanners[user_id] = Scanner(user_id)
             return self._scanners[user_id]
 
     def remove_scanner(self, user_id: int):
-        """Remove a scanner (e.g., on cleanup)."""
         with self._lock:
             sc = self._scanners.pop(user_id, None)
             if sc:
                 sc.stop()
 
-
-# Global manager singleton used by FastAPI
 scanner_manager = ScannerManager()

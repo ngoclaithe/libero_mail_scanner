@@ -1,25 +1,13 @@
-"""
-Capsolver integration for solving reCAPTCHA v2.
-API docs: https://docs.capsolver.com/
-"""
-
 import time
 import requests
 
-# Libero reCAPTCHA v2 config
 RECAPTCHA_SITE_KEY = "6LfhyXsUAAAAALD-dxi8n8-M4zSVBi9Z8D7D2H4L"
 RECAPTCHA_PAGE_URL = "https://login.libero.it/"
-
 
 def solve_recaptcha_v2(api_key: str,
                        site_key: str = RECAPTCHA_SITE_KEY,
                        page_url: str = RECAPTCHA_PAGE_URL,
                        timeout: int = 120) -> str:
-    """
-    Submit reCAPTCHA v2 to Capsolver and poll until solved.
-    Returns the g-recaptcha-response token string.
-    """
-    # 1. Submit task
     try:
         resp = requests.post("https://api.capsolver.com/createTask", json={
             "clientKey": api_key,
@@ -39,7 +27,6 @@ def solve_recaptcha_v2(api_key: str,
     task_id = data.get("taskId")
     print(f"[CAPTCHA] Submitted to Capsolver, taskId={task_id}", flush=True)
 
-    # 2. Poll for result
     deadline = time.time() + timeout
     while time.time() < deadline:
         time.sleep(5)
@@ -50,7 +37,6 @@ def solve_recaptcha_v2(api_key: str,
             }, timeout=30)
             data = resp.json()
         except Exception as e:
-            # We don't raise immediately on poll fail, just retry until deadline
             print(f"[CAPTCHA] Poll error: {e}", flush=True)
             continue
 
@@ -68,9 +54,7 @@ def solve_recaptcha_v2(api_key: str,
 
     raise CaptchaError(f"Capsolver timeout after {timeout}s")
 
-
 def check_balance(api_key: str) -> float:
-    """Check remaining balance on Capsolver account."""
     try:
         resp = requests.post("https://api.capsolver.com/getBalance", json={
             "clientKey": api_key
@@ -82,7 +66,6 @@ def check_balance(api_key: str) -> float:
     if data.get("errorId") == 0:
         return float(data.get("balance", 0.0))
     raise CaptchaError(f"Cannot check balance: {data.get('errorDescription', data)}")
-
 
 class CaptchaError(Exception):
     pass

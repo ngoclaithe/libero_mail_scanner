@@ -1,9 +1,3 @@
-"""
-debug_ocr.py — Script kiểm tra toàn bộ pipeline OCR độc lập.
-Chạy trên VPS: python debug_ocr.py
-
-Ghi toàn bộ log vào ocr_debug.log để xem lại sau.
-"""
 
 import sys
 import os
@@ -12,7 +6,6 @@ import platform
 import logging
 from pathlib import Path
 
-# ── Setup logging ──────────────────────────────────────────────────────────────
 log_path = Path("ocr_debug.log")
 logging.basicConfig(
     level=logging.DEBUG,
@@ -32,7 +25,6 @@ def section(title: str):
     log.info(f"  {title}")
     log.info(SEP)
 
-# ── BƯỚC 1: Thông tin hệ thống ────────────────────────────────────────────────
 section("BƯỚC 1: Thông tin hệ thống")
 log.info(f"Python   : {sys.version}")
 log.info(f"Platform : {platform.platform()}")
@@ -51,7 +43,6 @@ try:
 except ImportError:
     log.warning("psutil không có — cài bằng: pip install psutil")
 
-# ── BƯỚC 2: Import dependencies ────────────────────────────────────────────────
 section("BƯỚC 2: Import dependencies")
 
 deps = {
@@ -72,7 +63,6 @@ for name in deps:
     except ImportError as e:
         log.error(f"  ✗ {name:<15} KHÔNG import được: {e}")
 
-# ── BƯỚC 3: Kiểm tra GPU / CUDA ───────────────────────────────────────────────
 section("BƯỚC 3: GPU / CUDA")
 if deps["torch"]:
     import torch
@@ -83,7 +73,6 @@ if deps["torch"]:
 else:
     log.warning("  torch chưa import được, bỏ qua bước này")
 
-# ── BƯỚC 4: Kiểm tra EasyOCR Model cache ──────────────────────────────────────
 section("BƯỚC 4: EasyOCR Model Cache")
 model_dirs = [
     Path.home() / ".EasyOCR" / "model",
@@ -102,7 +91,6 @@ for d in model_dirs:
     else:
         log.warning(f"  ✗ Không tìm thấy: {d}")
 
-# ── BƯỚC 5: Khởi tạo EasyOCR Reader ──────────────────────────────────────────
 section("BƯỚC 5: Khởi tạo EasyOCR Reader")
 reader = None
 if deps["easyocr"]:
@@ -119,10 +107,8 @@ if deps["easyocr"]:
 else:
     log.error("  ✗ easyocr không import được, bỏ qua bước này")
 
-# ── BƯỚC 6: Test OCR trên ảnh mẫu ────────────────────────────────────────────
 section("BƯỚC 6: Test OCR trên ảnh thực tế")
 
-# Tìm file ảnh mẫu trong thư mục attachments/
 test_images = []
 attach_dir = Path("attachments")
 if attach_dir.exists():
@@ -132,14 +118,12 @@ if attach_dir.exists():
 else:
     log.warning("  ✗ Thư mục attachments/ không tồn tại")
 
-# Nếu không có ảnh thật, tạo ảnh test nhỏ
 if not test_images:
     log.info("  → Tạo ảnh test giả để kiểm tra pipeline...")
     try:
         from PIL import Image, ImageDraw, ImageFont
         import numpy as np
         
-        # Tạo ảnh giả dạng ID card Italy
         img = Image.new('RGB', (856, 540), color=(240, 240, 230))
         draw = ImageDraw.Draw(img)
         draw.rectangle([10, 10, 845, 530], outline=(0, 0, 0), width=3)
@@ -158,12 +142,11 @@ if not test_images:
         log.error(f"  ✗ Không tạo được ảnh test: {e}", exc_info=True)
 
 if test_images and reader:
-    for img_path in test_images[:3]:  # Test tối đa 3 ảnh
+    for img_path in test_images[:3]:
         log.info(f"\n  --- OCR ảnh: {img_path} ---")
         size_kb = img_path.stat().st_size / 1024
         log.info(f"  File size: {size_kb:.1f} KB")
         
-        # Layer 1 check
         if size_kb < 30:
             log.warning(f"  ⚠ Layer 1 FAIL: {size_kb:.1f} KB < 30 KB → sẽ bị loại bỏ!")
         elif size_kb > 10000:
@@ -171,7 +154,6 @@ if test_images and reader:
         else:
             log.info(f"  ✓ Layer 1 (size): PASS")
         
-        # Layer 2 check
         if deps["cv2"]:
             import cv2
             img_cv = cv2.imread(str(img_path))
@@ -186,7 +168,6 @@ if test_images and reader:
             else:
                 log.warning(f"  ⚠ cv2.imread() trả về None — ảnh bị corrupt hoặc format không hỗ trợ")
         
-        # Layer 3: EasyOCR
         try:
             log.info(f"  EasyOCR readtext() bắt đầu...")
             t0 = time.time()
@@ -197,7 +178,6 @@ if test_images and reader:
             log.info(f"  Số đoạn text: {len(results)}")
             log.info(f"  Text đọc được: {repr(text[:500])}")
             
-            # Keyword check
             VALID_KWS   = ["identita", "carta", "codice", "fiscale", "patente", "repubblica italiana", "ministero"]
             INVALID_KWS = ["contratto", "catastale", "fattura", "preventivo", "bolletta"]
             
@@ -219,7 +199,6 @@ elif not reader:
 elif not test_images:
     log.warning("  ✗ Không có ảnh để test!")
 
-# ── BƯỚC 7: Test PDF ──────────────────────────────────────────────────────────
 section("BƯỚC 7: Test PDF (pdfplumber)")
 if deps["pdfplumber"]:
     pdf_files = list(Path("attachments").rglob("*.pdf")) if Path("attachments").exists() else []
@@ -238,7 +217,6 @@ if deps["pdfplumber"]:
     else:
         log.info("  Không có file PDF trong attachments/ để test")
 
-# ── KẾT LUẬN ──────────────────────────────────────────────────────────────────
 section("KẾT LUẬN")
 issues = []
 if not deps["easyocr"]:

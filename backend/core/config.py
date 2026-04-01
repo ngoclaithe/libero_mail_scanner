@@ -2,17 +2,14 @@ import os
 import multiprocessing as mp
 from pathlib import Path
 
-# ── IMAP BASE ────────────────────────────────────────────────
 IMAP_HOST    = "imapmail.libero.it"
 IMAP_PORT    = 993
 SENT_FOLDER  = "outbox"
 IMAP_TIMEOUT = 30
 RETRY_MAX    = 3
 
-# ── CAPTCHA (2Captcha) ────────────────────────────────────────
 CAPTCHA_API_KEY = os.environ.get("CAPTCHA_API_KEY", "")
 
-# ── AUTO TUNING HỆ THỐNG ─────────────────────────────────────
 def get_system_specs():
     specs = {
         "cpu_count": mp.cpu_count(),
@@ -21,7 +18,6 @@ def get_system_specs():
         "has_gpu": False
     }
     
-    # Cố gắng đọc RAM thật nếu đang mở trên Linux
     try:
         if os.name == 'posix':
             total_bytes = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES')
@@ -29,7 +25,6 @@ def get_system_specs():
     except Exception:
         pass
         
-    # Cố gắng đọc Card màn hình (VRAM)
     try:
         smi = os.popen('nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null').read().strip()
         if smi:
@@ -59,12 +54,10 @@ if AI_WORKERS < 1: AI_WORKERS = 1
 print(f"[AUTO-TUNE] Phần cứng: {sys_specs['cpu_count']} Cores, RAM={sys_specs['ram_gb']:.1f}GB, VRAM={sys_specs['vram_gb']:.1f}GB")
 print(f"[AUTO-TUNE] Cấu hình: AI_WORKERS={AI_WORKERS} (GPU={USE_CUDA}), IMAP_WORKERS={MAX_WORKERS}, BATCH={BATCH_SIZE}", flush=True)
 
-# ── Files ────────────────────────────────────────────────────
 PROXY_FILE    = "SAR97653.txt"
 ACCOUNTS_FILE = "accounts.csv"
 OUTPUT_DIR    = Path("attachments")
 
-# ── MIME types to download ────────────────────────────────────
 ALLOWED_MIME = frozenset({
     "image/jpeg", "image/jpg", "image/png",
     "image/gif",  "image/bmp", "image/tiff",

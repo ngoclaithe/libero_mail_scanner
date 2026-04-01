@@ -58,6 +58,16 @@ export async function apiStop() {
   return res.json();
 }
 
+export async function apiStopEmail(email) {
+  const res = await fetch(`${API_URL}/api/stop-email`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) throw new Error('Failed to stop email');
+  return res.json();
+}
+
 export async function apiUploadAccounts(file) {
   const fd = new FormData();
   fd.append('file', file);

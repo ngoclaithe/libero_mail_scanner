@@ -39,7 +39,6 @@ export function AuthProvider({ children }) {
       const u = await apiGetMe();
       setUser(u);
     } catch {
-      // ignore
     }
   };
 

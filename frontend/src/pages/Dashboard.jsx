@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { apiGetState, apiStart, apiStop, apiUploadAccounts, apiUploadProxies, apiGetGallery, getMediaUrl, apiDeleteGallery, apiDownloadGallery, apiClearAllGallery, apiGetAccounts, apiSaveAccounts, apiGetProxies, apiSaveProxies } from '../api';
+import { apiGetState, apiStart, apiStop, apiUploadAccounts, apiUploadProxies, apiGetGallery, getMediaUrl, apiDeleteGallery, apiDownloadGallery, apiClearAllGallery, apiGetAccounts, apiSaveAccounts, apiGetProxies, apiSaveProxies, apiStopEmail } from '../api';
 import {
   Menu, Mail, Image as ImageIcon, Activity, Globe,
   Play, Square, LogOut, Settings, User as UserIcon,
@@ -51,7 +51,6 @@ export default function Dashboard() {
     });
   }, []);
 
-  // Poll state
   useEffect(() => {
     let active = true;
 
@@ -59,7 +58,6 @@ export default function Dashboard() {
       try {
         const s = await apiGetState();
 
-        // Detect account changes for log
         const prevAccounts = prevStateRef.current.accounts || {};
         const curAccounts = s.accounts || {};
         Object.entries(curAccounts).forEach(([email, a]) => {
@@ -84,7 +82,6 @@ export default function Dashboard() {
     return () => { active = false; clearInterval(interval); };
   }, [addLog]);
 
-  // Poll gallery
   useEffect(() => {
     let active = true;
     const fetchGallery = async () => {
@@ -113,20 +110,30 @@ export default function Dashboard() {
     addLog(data.msg);
   };
 
-
-
-
-
   const t = state.totals || {};
   const running = state.status === 'running';
   const accounts = state.accounts || {};
   const proxies = state.proxies || [];
   const aiLogs = state.ai_logs || [];
 
+  const sortedAccounts = useMemo(() => {
+    return Object.entries(accounts || {})
+      .map(([email, a]) => ({ email, ...a }))
+      .sort((a, b) => {
+        const aActive = a.status === 'running' || a.status === 'scanning';
+        const bActive = b.status === 'running' || b.status === 'scanning';
+        if (aActive && !bActive) return -1;
+        if (!aActive && bActive) return 1;
+        if (aActive && bActive) {
+          return (a.processed || 0) - (b.processed || 0);
+        }
+        return 0;
+      });
+  }, [accounts]);
+
   return (
     <div className="app-wrapper">
-      {/* ── Sidebar ── */}
-      <aside className={`main-sidebar ${isSidebarOpen ? '' : 'collapsed'}`}>
+            <aside className={`main-sidebar ${isSidebarOpen ? '' : 'collapsed'}`}>
         <div className="main-sidebar-header">
           {isSidebarOpen ? <h1>Libero Scanner</h1> : <h1>LS</h1>}
         </div>
@@ -161,10 +168,8 @@ export default function Dashboard() {
         </div>
       </aside>
 
-      {/* ── Main Layout ── */}
-      <div className="main-content-wrapper">
-        {/* Topbar */}
-        <header className="main-topbar">
+            <div className="main-content-wrapper">
+                <header className="main-topbar">
           <div className="topbar-actions">
             <div className="status-wrap">
               <span className={`status-dot ${state.status}`} />
@@ -194,10 +199,8 @@ export default function Dashboard() {
           </div>
         </header>
 
-        {/* Content Area */}
-        <div className="main-area fade-in">
-          {/* ── Dashboard Stats (ONLY on Accounts Tab) ── */}
-          {activeTab === 'accounts' && (
+                <div className="main-area fade-in">
+                    {activeTab === 'accounts' && (
             <>
               <div className="upload-bar">
                 <label>📂 Danh sách Accounts:</label>
@@ -232,8 +235,7 @@ export default function Dashboard() {
             </>
           )}
 
-        {/* ── Accounts Tab ── */}
-        {activeTab === 'accounts' && (
+                {activeTab === 'accounts' && (
           <div className="section">
             <div className="section-title">Tiến Độ Quét Tài Khoản</div>
             <div className="table-wrap">
@@ -242,13 +244,13 @@ export default function Dashboard() {
                   <tr>
                     <th>Email</th><th>Trạng Thái</th><th>Proxy</th><th>Luồng Xử Lý</th>
                     <th>Tiến Độ (%)</th><th>Tổng Số Thư</th><th>Tệp Chứa Ảnh</th>
-                    <th>Tệp Gần Nhất</th><th>Giải Trình Lỗi</th>
+                    <th>Tệp Gần Nhất</th><th>Giải Trình Lỗi</th><th style={{width:40}}></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {Object.entries(accounts).map(([email, a]) => (
-                    <tr key={email}>
-                      <td className="mono small">{esc(email)}</td>
+                  {sortedAccounts.map((a) => (
+                    <tr key={a.email}>
+                      <td className="mono small">{esc(a.email)}</td>
                       <td><Badge status={a.status} /></td>
                       <td className="mono small muted">{esc(a.proxy ?? '—')}</td>
                       <td className="small muted">{esc((a.thread ?? '').replace('worker_', 'W'))}</td>
@@ -257,10 +259,29 @@ export default function Dashboard() {
                       <td className="mono yellow">{a.images_found ?? 0}</td>
                       <td className="small muted ellipsis" style={{ maxWidth: 150 }}>{esc(a.last_file)}</td>
                       <td className="small red ellipsis" style={{ maxWidth: 180 }}>{esc(a.error)}</td>
+                      <td>
+                        {(a.status === 'running' || a.status === 'scanning') && (
+                          <button
+                            className="btn btn-stop"
+                            style={{ padding: '4px', minWidth: 'auto', minHeight: 'auto' }}
+                            onClick={async () => {
+                               try {
+                                 await apiStopEmail(a.email);
+                                 addLog(`■ Lệnh dừng cho: ${a.email}`);
+                               } catch(e) {
+                                 addLog(`Lỗi: ${e.message}`);
+                               }
+                            }}
+                            title="Dừng"
+                          >
+                            <Square size={12} color="red" />
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
-                  {Object.keys(accounts).length === 0 && (
-                    <tr><td colSpan={9} className="muted" style={{ textAlign: 'center', padding: 20 }}>Chưa có dữ liệu quét</td></tr>
+                  {sortedAccounts.length === 0 && (
+                    <tr><td colSpan={10} className="muted" style={{ textAlign: 'center', padding: 20 }}>Chưa có dữ liệu quét</td></tr>
                   )}
                 </tbody>
               </table>
@@ -268,13 +289,11 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ── Gallery Tab ── */}
-        {activeTab === 'gallery' && (
+                {activeTab === 'gallery' && (
           <GalleryTab gallery={gallery} />
         )}
 
-        {/* ── AI Log Tab ── */}
-        {activeTab === 'ai' && (
+                {activeTab === 'ai' && (
           <>
             <div className="section">
               <div className="section-title">Log Chẩn Đoán Của Mô Hình Trí Tuệ Nhân Tạo (AI Classifier)</div>
@@ -302,8 +321,7 @@ export default function Dashboard() {
           </>
         )}
 
-        {/* ── Proxy Tab ── */}
-        {activeTab === 'proxies' && (
+                {activeTab === 'proxies' && (
           <div className="section">
             <div className="upload-bar" style={{ marginBottom: '20px' }}>
               <label>🌐 Danh sách Proxy:</label>
@@ -344,8 +362,7 @@ export default function Dashboard() {
           </div>
         )}
 
-      {/* ── Accounts Modal ── */}
-      {showAccountsModal && (
+            {showAccountsModal && (
         <AccountsModal
           onClose={() => setShowAccountsModal(false)}
           addLog={addLog}
@@ -353,8 +370,7 @@ export default function Dashboard() {
         />
       )}
 
-      {/* ── Proxies Modal ── */}
-      {showProxiesModal && (
+            {showProxiesModal && (
         <ProxiesModal
           onClose={() => setShowProxiesModal(false)}
           addLog={addLog}
@@ -365,11 +381,6 @@ export default function Dashboard() {
   </div>
   );
 }
-
-
-/* ══════════════════════════════════════════════════════════════
-   AccountsModal — Quản lý danh sách accounts
-   ══════════════════════════════════════════════════════════════ */
 
 function AccountsModal({ onClose, addLog, refreshUser }) {
   const [accounts, setAccounts] = useState([]);
@@ -382,7 +393,6 @@ function AccountsModal({ onClose, addLog, refreshUser }) {
   const [newPwd, setNewPwd] = useState('');
   const fileRef = useRef(null);
 
-  // Load existing accounts on mount
   useEffect(() => {
     (async () => {
       try {
@@ -395,7 +405,6 @@ function AccountsModal({ onClose, addLog, refreshUser }) {
     })();
   }, []);
 
-  // Handle file import (select + parse instantly)
   const handleFileImport = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -404,7 +413,6 @@ function AccountsModal({ onClose, addLog, refreshUser }) {
       const text = ev.target.result;
       const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
       const parsed = [];
-      // Check if CSV with header
       const first = lines[0]?.toLowerCase() || '';
       const hasHeader = first.includes('email') && first.includes('password');
       const startIdx = hasHeader ? 1 : 0;
@@ -474,7 +482,6 @@ function AccountsModal({ onClose, addLog, refreshUser }) {
     setSaving(false);
   };
 
-  // Close on Escape
   useEffect(() => {
     const handleKey = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handleKey);
@@ -484,14 +491,12 @@ function AccountsModal({ onClose, addLog, refreshUser }) {
   return (
     <div className="acc-modal-overlay" onClick={onClose}>
       <div className="acc-modal" onClick={e => e.stopPropagation()}>
-        {/* Header */}
-        <div className="acc-modal-header">
+                <div className="acc-modal-header">
           <h2>📝 Quản Lý Danh Sách Accounts</h2>
           <button className="acc-modal-close" onClick={onClose}><X size={20} /></button>
         </div>
 
-        {/* Toolbar */}
-        <div className="acc-modal-toolbar">
+                <div className="acc-modal-toolbar">
           <input type="file" ref={fileRef} accept=".csv,.txt" onChange={handleFileImport} style={{ display: 'none' }} />
           <button className="btn btn-upload" onClick={() => fileRef.current?.click()} style={{ gap: '6px' }}>
             <Upload size={14} /> Import từ File (.csv/.txt)
@@ -501,8 +506,7 @@ function AccountsModal({ onClose, addLog, refreshUser }) {
           </span>
         </div>
 
-        {/* Table */}
-        <div className="acc-modal-table-wrap">
+                <div className="acc-modal-table-wrap">
           {loading ? (
             <div style={{ textAlign: 'center', padding: '40px', color: 'var(--muted)' }}>Loading...</div>
           ) : (
@@ -558,8 +562,7 @@ function AccountsModal({ onClose, addLog, refreshUser }) {
                     )}
                   </tr>
                 ))}
-                {/* Add row */}
-                <tr className="acc-add-row">
+                                <tr className="acc-add-row">
                   <td className="mono muted"><Plus size={14} /></td>
                   <td>
                     <input className="acc-edit-input" placeholder="email@libero.it"
@@ -592,8 +595,7 @@ function AccountsModal({ onClose, addLog, refreshUser }) {
           )}
         </div>
 
-        {/* Footer */}
-        <div className="acc-modal-footer">
+                <div className="acc-modal-footer">
           <button className="btn btn-upload" onClick={onClose}>Hủy</button>
           <button className="btn btn-start" onClick={handleSave} disabled={saving || accounts.length === 0}
             style={{ gap: '6px' }}>
@@ -605,11 +607,6 @@ function AccountsModal({ onClose, addLog, refreshUser }) {
   );
 }
 
-
-/* ══════════════════════════════════════════════════════════════
-   ProxiesModal — Quản lý danh sách proxy
-   ══════════════════════════════════════════════════════════════ */
-
 function ProxiesModal({ onClose, addLog }) {
   const [proxies, setProxies] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -619,7 +616,6 @@ function ProxiesModal({ onClose, addLog }) {
   const [newData, setNewData] = useState({ host: '', port: '', username: '', password: '' });
   const fileRef = useRef(null);
 
-  // Load existing proxies
   useEffect(() => {
     (async () => {
       try {
@@ -632,7 +628,6 @@ function ProxiesModal({ onClose, addLog }) {
     })();
   }, []);
 
-  // File import
   const handleFileImport = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -702,7 +697,6 @@ function ProxiesModal({ onClose, addLog }) {
     setSaving(false);
   };
 
-  // Escape to close
   useEffect(() => {
     const handleKey = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handleKey);
@@ -712,14 +706,12 @@ function ProxiesModal({ onClose, addLog }) {
   return (
     <div className="acc-modal-overlay" onClick={onClose}>
       <div className="acc-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '900px' }}>
-        {/* Header */}
-        <div className="acc-modal-header">
+                <div className="acc-modal-header">
           <h2>🌐 Quản Lý Danh Sách Proxy</h2>
           <button className="acc-modal-close" onClick={onClose}><X size={20} /></button>
         </div>
 
-        {/* Toolbar */}
-        <div className="acc-modal-toolbar">
+                <div className="acc-modal-toolbar">
           <input type="file" ref={fileRef} accept=".txt,.csv" onChange={handleFileImport} style={{ display: 'none' }} />
           <button className="btn btn-upload" onClick={() => fileRef.current?.click()} style={{ gap: '6px' }}>
             <Upload size={14} /> Import từ File (.txt)
@@ -729,8 +721,7 @@ function ProxiesModal({ onClose, addLog }) {
           </span>
         </div>
 
-        {/* Table */}
-        <div className="acc-modal-table-wrap">
+                <div className="acc-modal-table-wrap">
           {loading ? (
             <div style={{ textAlign: 'center', padding: '40px', color: 'var(--muted)' }}>Loading...</div>
           ) : (
@@ -782,8 +773,7 @@ function ProxiesModal({ onClose, addLog }) {
                     )}
                   </tr>
                 ))}
-                {/* Add row */}
-                <tr className="acc-add-row">
+                                <tr className="acc-add-row">
                   <td className="mono muted"><Plus size={14} /></td>
                   <td><input className="acc-edit-input" placeholder="host" value={newData.host}
                     onChange={e => setNewData({ ...newData, host: e.target.value })}
@@ -816,8 +806,7 @@ function ProxiesModal({ onClose, addLog }) {
           )}
         </div>
 
-        {/* Footer */}
-        <div className="acc-modal-footer">
+                <div className="acc-modal-footer">
           <button className="btn btn-upload" onClick={onClose}>Hủy</button>
           <button className="btn btn-start" onClick={handleSave} disabled={saving || proxies.length === 0}
             style={{ gap: '6px' }}>
@@ -835,7 +824,9 @@ function GalleryTab({ gallery }) {
   const [lightbox, setLightbox] = useState(null);
   const [selectedEmail, setSelectedEmail] = useState(null);
   const [filter, setFilter] = useState('all');
-  const [page, setPage] = useState(1);
+  
+  const [visibleCount, setVisibleCount] = useState(24);
+  const observerTarget = useRef(null);
 
   const [selectedPaths, setSelectedPaths] = useState(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
@@ -856,7 +847,6 @@ function GalleryTab({ gallery }) {
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
 
   const handleDownloadAllValid = async () => {
-    // Thu thập tất cả path documents từ mọi email
     const allValidPaths = [];
     Object.entries(gallery).forEach(([slug, info]) => {
       (info.documents || []).forEach(f => {
@@ -884,7 +874,6 @@ function GalleryTab({ gallery }) {
     setIsDownloadingAll(false);
   };
 
-  // Build email list with counts
   const emailData = useMemo(() => {
     return Object.entries(gallery).map(([slug, info]) => {
       const raw = info.raw || [];
@@ -893,14 +882,12 @@ function GalleryTab({ gallery }) {
     }).sort((a, b) => b.total - a.total);
   }, [gallery]);
 
-  // Auto-select first email
   useEffect(() => {
     if (emailData.length > 0 && !selectedEmail) {
       setSelectedEmail(emailData[0].slug);
     }
   }, [emailData]);
 
-  // Images for selected email
   const currentImages = useMemo(() => {
     if (!selectedEmail || !gallery[selectedEmail]) return [];
     const info = gallery[selectedEmail];
@@ -916,27 +903,36 @@ function GalleryTab({ gallery }) {
     return list;
   }, [gallery, selectedEmail]);
 
-  // Filter
   const filtered = useMemo(() => {
     if (filter === 'valid') return currentImages.filter(i => i.type === 'valid');
     if (filter === 'raw') return currentImages.filter(i => i.type === 'raw');
     return currentImages;
   }, [currentImages, filter]);
 
-  // Current email stats
   const curValid = currentImages.filter(i => i.type === 'valid').length;
   const curRaw = currentImages.filter(i => i.type === 'raw').length;
 
-  // Pagination
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
-  const safePage = Math.min(page, totalPages);
-  const pageItems = filtered.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE);
+  const visibleItems = filtered.slice(0, visibleCount);
 
-  // Reset page and selection on email/filter change
   useEffect(() => { 
-    setPage(1); 
+    setVisibleCount(24); 
     setSelectedPaths(new Set());
   }, [selectedEmail, filter]);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries[0].isIntersecting) {
+          setVisibleCount(prev => Math.min(prev + 24, filtered.length));
+        }
+      },
+      { threshold: 0.1 }
+    );
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current);
+    }
+    return () => observer.disconnect();
+  }, [filtered.length]);
 
   const currentSelectionPaths = Array.from(selectedPaths);
   const isAllSelected = filtered.length > 0 && selectedPaths.size === filtered.length;
@@ -987,17 +983,14 @@ function GalleryTab({ gallery }) {
     try {
       await apiDeleteGallery(currentSelectionPaths);
       setSelectedPaths(new Set());
-      // Refresh will be handled by auto-poll from Dashboard
     } catch (err) {
       alert("Xóa ảnh thất bại!");
     }
     setIsDeleting(false);
   };
 
-  // Lightbox
   const openLightbox = (idx) => {
-    const globalIdx = (safePage - 1) * PER_PAGE + idx;
-    setLightbox({ ...filtered[globalIdx], filteredList: filtered, currentIndex: globalIdx });
+    setLightbox({ ...filtered[idx], filteredList: filtered, currentIndex: idx });
   };
   const closeLightbox = () => setLightbox(null);
   const navigateLightbox = (dir) => {
@@ -1019,19 +1012,6 @@ function GalleryTab({ gallery }) {
     return () => window.removeEventListener('keydown', handleKey);
   }, [lightbox]);
 
-  const buildPageRange = () => {
-    const range = [];
-    const delta = 2;
-    const left = Math.max(2, safePage - delta);
-    const right = Math.min(totalPages - 1, safePage + delta);
-    range.push(1);
-    if (left > 2) range.push('...');
-    for (let i = left; i <= right; i++) range.push(i);
-    if (right < totalPages - 1) range.push('...');
-    if (totalPages > 1) range.push(totalPages);
-    return range;
-  };
-
   const isEmpty = emailData.length === 0;
 
   return (
@@ -1045,10 +1025,8 @@ function GalleryTab({ gallery }) {
           </div>
         ) : (
           <>
-            {/* Master-Detail Layout */}
-            <div className="gal-layout">
-              {/* ── Sidebar: Email List ── */}
-              <div className="gal-sidebar">
+                        <div className="gal-layout">
+                            <div className="gal-sidebar">
                 <div className="gal-sidebar-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
                   <span>📧 Tài khoản Email</span>
                   <div style={{ display: 'flex', gap: '4px' }}>
@@ -1085,12 +1063,10 @@ function GalleryTab({ gallery }) {
                 </div>
               </div>
 
-              {/* ── Content: Images for Selected Email ── */}
-              <div className="gal-content">
+                            <div className="gal-content">
                 {selectedEmail ? (
                   <>
-                    {/* Content Header */}
-                    <div className="gal-content-header">
+                                        <div className="gal-content-header">
                       <div className="gal-content-title">
                         <span className="gal-content-email">📧 {selectedEmail}</span>
                         <span className="gal-content-total">{currentImages.length} ảnh</span>
@@ -1112,10 +1088,9 @@ function GalleryTab({ gallery }) {
                       </div>
                     </div>
 
-                    {/* Results info / Bulk Actions */}
-                    <div className="gal-results-info" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <div className="gal-results-info" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div>
-                        Hiển thị {pageItems.length} / {filtered.length} ảnh
+                        Hiển thị {visibleItems.length} / {filtered.length} ảnh
                         {filtered.length === 0 && ' — Không có ảnh loại này'}
                       </div>
                       
@@ -1153,10 +1128,9 @@ function GalleryTab({ gallery }) {
                       )}
                     </div>
 
-                    {/* Image Grid */}
-                    {pageItems.length > 0 && (
+                                        {visibleItems.length > 0 && (
                       <div className="gal-grid">
-                        {pageItems.map((img, i) => (
+                        {visibleItems.map((img, i) => (
                           <div
                             key={`${img.type}-${img.file}`}
                             className={`gal-item ${img.type} ${selectedPaths.has(img.path) ? 'selected' : ''}`}
@@ -1198,30 +1172,9 @@ function GalleryTab({ gallery }) {
                       </div>
                     )}
 
-                    {/* Pagination */}
-                    {totalPages > 1 && (
-                      <div className="gal-pagination">
-                        <button className="gal-page-btn" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}>
-                          ‹ Trước
-                        </button>
-                        <div className="gal-page-nums">
-                          {buildPageRange().map((p, i) =>
-                            p === '...' ? (
-                              <span key={`dots-${i}`} className="gal-page-dots">…</span>
-                            ) : (
-                              <button
-                                key={p}
-                                className={`gal-page-num ${safePage === p ? 'active' : ''}`}
-                                onClick={() => setPage(p)}
-                              >
-                                {p}
-                              </button>
-                            )
-                          )}
-                        </div>
-                        <button className="gal-page-btn" disabled={safePage >= totalPages} onClick={() => setPage(safePage + 1)}>
-                          Sau ›
-                        </button>
+                                        {visibleCount < filtered.length && (
+                      <div ref={observerTarget} style={{ height: '40px', margin: '20px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)' }}>
+                        Đang tải thêm ảnh...
                       </div>
                     )}
                   </>
@@ -1235,8 +1188,7 @@ function GalleryTab({ gallery }) {
           </>
         )}
 
-      {/* Lightbox */}
-      {lightbox && (
+            {lightbox && (
         <div className="lightbox-overlay" onClick={closeLightbox}>
           <div className="lightbox-container" onClick={(e) => e.stopPropagation()}>
             <button className="lightbox-close" onClick={closeLightbox}>✕</button>
