@@ -34,6 +34,7 @@ class AppState:
                     "images_found": 0,
                     "last_file":    None,
                     "error":        None,
+                    "document_found": False,
                 }
 
     def update_account(self, email: str, **kw):

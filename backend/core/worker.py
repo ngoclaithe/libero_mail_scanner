@@ -259,6 +259,20 @@ def run_account(
                 user_state.update_account(email_addr, status="stopped", error="Đã dừng phiên quét")
                 return
 
+            # CƠ CHẾ THROTTLE: Ép tải nghỉ ngơi để chừa sức đoạt giấy tờ sớm
+            while ai_queue.qsize() > 20:
+                if user_state.accounts.get(email_addr, {}).get("document_found"):
+                    break
+                if stop_event.is_set():
+                    return
+                time.sleep(1.0)
+                
+            # CƠ CHẾ CẮT ĐỨT: Phát hiện giấy tờ là quit hàm liền
+            if user_state.accounts.get(email_addr, {}).get("document_found"):
+                user_state.update_account(email_addr, status="found_doc", error="✅ Đã tìm thấy giấy tờ")
+                print(f"[SMART-ADAPTIVE] {email_addr} Đã tìm thấy bài, ngưng tải batch để chừa băng thông!", flush=True)
+                return
+
             batch = all_ids[b_start: b_start + BATCH_SIZE]
             batch_str = b','.join(batch)
             
@@ -339,6 +353,10 @@ def run_account(
                 # Giai đoạn 2: Tải gom nhóm hàng loạt tất cả ảnh cùng một part_num
                 for part_num, mail_nos in fetch_plan.items():
                     for i in range(0, len(mail_nos), 50):
+                        if user_state.accounts.get(email_addr, {}).get("document_found"):
+                            print(f"[SMART-ADAPTIVE] {email_addr} Phát hiện ra giấy tờ sớm, STOP FETCH part_num={part_num}", flush=True)
+                            break
+                            
                         chunk_nos = mail_nos[i:i+50]
                         batch_ids = b','.join(chunk_nos)
                         
@@ -413,7 +431,9 @@ def run_account(
 
         _write_manifest(raw_dir.parent / "manifest.csv", manifest_rows)
 
-        user_state.update_account(email_addr, status="done")
+        acc_info = user_state.accounts.get(email_addr, {})
+        if not acc_info.get("document_found"):
+            user_state.update_account(email_addr, status="done")
         user_state.inc("accounts_done")
 
     except Exception as e:

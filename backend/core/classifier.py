@@ -92,6 +92,7 @@ class ClassifierEngine:
         self._stop = mp.Event()
         self._processes = []
         self._local = threading.local()
+        self._doc_found_shared = None
 
     @property
     def reader(self):
@@ -134,6 +135,11 @@ class ClassifierEngine:
             _log("[OCR-DEBUG] AI Classifier workers vẫn đang chạy, bỏ qua bước khởi tạo lại model.")
             return
 
+        if self._doc_found_shared is None:
+            self._doc_found_shared = mp.Manager().dict()
+        else:
+            self._doc_found_shared.clear()
+
         self._stop.clear()
         self._processes.clear()
         
@@ -166,6 +172,15 @@ class ClassifierEngine:
                     continue
                 
                 email_addr, file_path, mime, user_id = job
+                
+                # Bỏ qua ngay lập tức ảnh rác nếu account này đã báo tìm thấy giấy tờ
+                if self._doc_found_shared is not None and self._doc_found_shared.get(email_addr):
+                    try:
+                        Path(file_path).unlink()
+                    except:
+                        pass
+                    continue
+                    
                 proxy_state = DummyState(user_id)
                 
                 _log(f"[OCR-DEBUG] ───────────────────────────────────────")
@@ -243,6 +258,9 @@ class ClassifierEngine:
         
         is_valid, side = self._evaluate_text_and_features(text, features, mime)
         if is_valid:
+            if self._doc_found_shared is not None:
+                self._doc_found_shared[email_addr] = True
+
             prefix = side if side else "DOC"
             msg_ok = f" ↳ ✅ TÌM THẤY TÀI LIỆU HỢP LỆ ({prefix}): {path.name}"
             _log(msg_ok)
@@ -270,7 +288,7 @@ class ClassifierEngine:
                         pass
             
             user_state.inc("documents_found")
-            user_state.update_account(email_addr, last_file=f"✅ {prefix}: {path.name}")
+            user_state.update_account(email_addr, last_file=f"✅ {prefix}: {path.name}", document_found=True)
         else:
             msg_no = f" ↳ ❌ File rác / Rỗng thông tin: {path.name}"
             _log(msg_no)

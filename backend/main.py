@@ -138,7 +138,8 @@ async def api_start(current_user: TokenData = Depends(get_current_user)):
 @app.post("/api/stop")
 async def api_stop(current_user: TokenData = Depends(get_current_user)):
     from core.scanner import scanner_manager
-    scanner_manager.stop_scanner(SHARED_SCANNER_ID)
+    scanner = scanner_manager.get_scanner(SHARED_SCANNER_ID)
+    scanner.stop()
     return {"ok": True, "msg": "■ Lệnh dừng đã được gửi! Chờ luồng xử lý..."}
 
 class StopEmailRequest(BaseModel):
