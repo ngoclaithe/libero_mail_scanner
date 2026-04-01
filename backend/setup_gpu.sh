@@ -15,9 +15,11 @@ if ! command -v pm2 &> /dev/null; then
 fi
 
 echo "=> Đang kiểm tra uv..."
+export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
 if ! command -v uv &> /dev/null; then
-    curl -4 -LsSf https://astral.sh/uv/install.sh | sh
-    source $HOME/.cargo/env
+    echo "=> Tải qua PIP3 để chống kẹt mạng GitHub..."
+    sudo apt install -y python3-pip
+    pip3 install uv --break-system-packages || python3 -m pip install uv --break-system-packages
 fi
 
 echo "=> Đang chạy uv sync..."
