@@ -223,38 +223,45 @@ class LiberoWebClient:
             raise WebLoginError("Not logged in")
 
         # First, find the sent folder
+        print(f"[WEB-API] {self.email} | Đang tìm folder sent...", flush=True)
         folders = self._api("folders", action="list", parent="default0",
                             columns="1,300,301,302,304", tree="0")
 
         sent_folder_id = None
         if isinstance(folders, list):
+            print(f"[WEB-API] {self.email} | Folders found: {len(folders)}", flush=True)
             for f in folders:
                 if isinstance(f, list) and len(f) >= 2:
-                    folder_name = str(f[0]).lower() if f else ""
-                    folder_id = str(f[0]) if f else ""
+                    # Log each folder for debugging
+                    print(f"[WEB-API] {self.email} |   folder: {f[:3]}", flush=True)
                     # Check for sent/outbox folders
                     for fname_check in f:
                         if isinstance(fname_check, str) and fname_check.lower() in (
-                            "sent", "outbox", "posta inviata", "inviata", "inviati"
+                            "sent", "outbox", "posta inviata", "inviata", "inviati",
+                            "sent items", "sent mail"
                         ):
                             sent_folder_id = f[0]
+                            print(f"[WEB-API] {self.email} | ✓ Found sent folder by name: {sent_folder_id}", flush=True)
                             break
                 if sent_folder_id:
                     break
+        else:
+            print(f"[WEB-API] {self.email} | Folders response type: {type(folders)}, val: {str(folders)[:300]}", flush=True)
 
         if not sent_folder_id:
-            # Try standard OX folder IDs
-            # Usually: default0/INBOX.Sent or default0/Sent
-            for try_folder in ["default0/INBOX.Sent", "default0/Sent",
-                                "default0/INBOX.outbox", "default0/outbox"]:
+            # Try standard OX folder IDs directly
+            for try_folder in ["default0/Sent", "default0/INBOX.Sent",
+                                "default0/INBOX.outbox", "default0/outbox",
+                                "default0/Posta inviata", "default0/INBOX.Posta inviata"]:
                 try:
                     mails = self._api("mail", action="all", folder=try_folder,
-                                      columns=MAIL_COLUMNS, limit="0,50")
+                                      columns=MAIL_COLUMNS, limit="0,5")
                     if mails is not None:
                         sent_folder_id = try_folder
-                        print(f"[WEB-API] {self.email} | Found sent folder: {try_folder}", flush=True)
+                        print(f"[WEB-API] {self.email} | ✓ Found sent folder by probe: {try_folder}", flush=True)
                         break
-                except Exception:
+                except Exception as e:
+                    print(f"[WEB-API] {self.email} |   probe {try_folder} → {e}", flush=True)
                     continue
 
         if not sent_folder_id:
@@ -312,11 +319,22 @@ class LiberoWebClient:
         params["session"] = self.ox_session
         url = f"{self.BASE_MAIL}/appsuite/api/{module}"
 
-        resp = self.session.get(url, params=params, timeout=30)
-        resp.raise_for_status()
+        try:
+            resp = self.session.get(url, params=params, timeout=30)
+            print(f"[OX-API] {module}?action={params.get('action','')} → status={resp.status_code} len={len(resp.text)}", flush=True)
+            resp.raise_for_status()
+        except Exception as e:
+            print(f"[OX-API] {module} FAILED: {e}", flush=True)
+            raise
 
-        data = resp.json()
+        try:
+            data = resp.json()
+        except Exception:
+            print(f"[OX-API] {module} NOT JSON: {resp.text[:300]}", flush=True)
+            raise WebApiError(f"OX API returned non-JSON for {module}")
+
         if "error" in data:
+            print(f"[OX-API] {module} ERROR: {data.get('error_desc', data['error'])}", flush=True)
             raise WebApiError(f"OX API error: {data.get('error_desc', data['error'])}")
 
         return data.get("data", data)
