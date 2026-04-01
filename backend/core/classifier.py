@@ -15,12 +15,9 @@ SHOW_VERBOSE_OCR_LOGS = False
 
 def _log(msg: str):
     """Print with immediate flush — required for PM2/non-TTY environments."""
-    if "[OCR-DEBUG]" in msg and "Layer" in msg:
-        if not SHOW_VERBOSE_OCR_LOGS: return
-    if "[OCR-DEBUG]" in msg and "Khuôn mặt" in msg:
-        if not SHOW_VERBOSE_OCR_LOGS: return
-    if "[OCR-DEBUG] ─" in msg or "[OCR-DEBUG] 📥" in msg or "[OCR-DEBUG]   " in msg:
-        if not SHOW_VERBOSE_OCR_LOGS: return
+    # Tắt toàn bộ [OCR-DEBUG] khi verbose=False
+    if "[OCR-DEBUG]" in msg and not SHOW_VERBOSE_OCR_LOGS:
+        return
     print(msg, flush=True)
 
 

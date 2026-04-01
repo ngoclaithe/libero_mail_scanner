@@ -179,8 +179,12 @@ def run_account(
                 break
             except imaplib.IMAP4.error as e:
                 err = str(e)
+                err_raw = repr(e)
+                proxy_label = proxy.id if proxy else "direct"
+                print(f"[IMAP-DEBUG] {email_addr} | proxy={proxy_label} | IMAP4.error raw={err_raw}", flush=True)
                 # ── Policy bsc KO = IP bị chặn → đổi proxy thử lại ──
                 if "policy" in err.lower() and "ko" in err.lower():
+                    print(f"[IMAP-DEBUG] {email_addr} | → Phân loại: POLICY_KO (IP bị chặn)", flush=True)
                     if proxy and proxy_switches < max_proxy_switches:
                         old_proxy_id = proxy.id
                         pool.mark_blocked(proxy, err)
@@ -204,17 +208,22 @@ def run_account(
                         return
                 else:
                     # Lỗi auth thật (sai mật khẩu, account bị khóa...)
+                    print(f"[IMAP-DEBUG] {email_addr} | → Phân loại: AUTH_FAIL (sai pass/bị khóa)", flush=True)
                     _handle_auth_error(proxy, pool, err)
                     user_state.update_account(email_addr, status="failed", error=err)
                     return
             except Exception as e:
                 err = str(e)
+                err_raw = repr(e)
+                proxy_label = proxy.id if proxy else "direct"
+                print(f"[IMAP-DEBUG] {email_addr} | proxy={proxy_label} | Exception raw={err_raw}", flush=True)
                 # ── Proxy lỗi (502/407/connection refused) → đổi proxy ──
                 is_proxy_error = proxy and any(k in err.lower() for k in [
                     "proxy rejected", "502", "407", "bad gateway",
                     "connection refused", "connect tunnel",
                 ])
                 if is_proxy_error and proxy_switches < max_proxy_switches:
+                    print(f"[IMAP-DEBUG] {email_addr} | → Phân loại: PROXY_ERROR → đổi proxy", flush=True)
                     old_proxy_id = proxy.id
                     pool.mark_dead(proxy, err)
                     pool.release(proxy)
@@ -229,6 +238,7 @@ def run_account(
                     attempt = 0
                     continue
                 else:
+                    print(f"[IMAP-DEBUG] {email_addr} | → Phân loại: CONN_ERROR (retry {attempt+1}/{RETRY_MAX})", flush=True)
                     attempt += 1
                     if attempt >= RETRY_MAX:
                         _handle_conn_error(proxy, pool, err)
