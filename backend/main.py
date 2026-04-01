@@ -363,6 +363,72 @@ async def api_save_proxies(
         "count": count,
     }
 
+
+# ── Captcha Settings ──────────────────────────────────────────
+
+class CaptchaKeyRequest(BaseModel):
+    api_key: str
+
+
+@app.get("/api/captcha-key")
+async def api_get_captcha_key(current_user: TokenData = Depends(get_current_user)):
+    """Check if 2Captcha API key is configured."""
+    from core.config import CAPTCHA_API_KEY
+    return {
+        "configured": bool(CAPTCHA_API_KEY),
+        "key_preview": CAPTCHA_API_KEY[:8] + "..." if CAPTCHA_API_KEY and len(CAPTCHA_API_KEY) > 8 else "",
+    }
+
+
+@app.post("/api/captcha-key")
+async def api_set_captcha_key(
+    req: CaptchaKeyRequest,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Set 2Captcha API key. Validates balance before saving."""
+    key = req.api_key.strip()
+    if not key:
+        raise HTTPException(400, "API key rỗng")
+
+    # Validate key by checking balance
+    try:
+        from core.captcha_solver import check_balance
+        balance = check_balance(key)
+    except Exception as e:
+        raise HTTPException(400, f"API key không hợp lệ: {e}")
+
+    # Save to config module at runtime
+    import core.config as cfg
+    cfg.CAPTCHA_API_KEY = key
+
+    # Also save to .env for persistence
+    _update_env_file("CAPTCHA_API_KEY", key)
+
+    return {
+        "ok": True,
+        "msg": f"✓ 2Captcha API key saved! Balance: ${balance:.2f}",
+        "balance": balance,
+    }
+
+
+def _update_env_file(key: str, value: str):
+    """Add or update a key in the .env file."""
+    env_path = Path(".env")
+    lines = []
+    found = False
+    if env_path.exists():
+        with open(env_path, "r") as f:
+            for line in f:
+                if line.startswith(f"{key}="):
+                    lines.append(f"{key}={value}\n")
+                    found = True
+                else:
+                    lines.append(line)
+    if not found:
+        lines.append(f"{key}={value}\n")
+    with open(env_path, "w") as f:
+        f.writelines(lines)
+
 @app.get("/api/gallery")
 async def api_gallery(current_user: TokenData = Depends(get_current_user)):
     res = {}

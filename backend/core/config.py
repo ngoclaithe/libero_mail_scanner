@@ -9,6 +9,9 @@ SENT_FOLDER  = "outbox"
 IMAP_TIMEOUT = 30
 RETRY_MAX    = 3
 
+# ── CAPTCHA (2Captcha) ────────────────────────────────────────
+CAPTCHA_API_KEY = os.environ.get("CAPTCHA_API_KEY", "")
+
 # ── AUTO TUNING HỆ THỐNG ─────────────────────────────────────
 def get_system_specs():
     specs = {

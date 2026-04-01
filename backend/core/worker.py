@@ -256,11 +256,31 @@ def run_account(
             else:
                 # All 4 modes tried
                 if policy_ko_all_modes:
-                    # Policy KO on ALL modes — account-level block, fail-fast
-                    print(f"[IMAP-RAW] {email_addr} | POLICY KO on all 4 modes — account blocked, skip", flush=True)
-                    user_state.update_account(email_addr, status="failed",
-                                              error=f"Policy KO — account bị Libero khóa IMAP (thử 4 phương thức)")
-                    return
+                    # Policy KO on ALL modes — try web fallback
+                    from core.config import CAPTCHA_API_KEY
+                    if CAPTCHA_API_KEY:
+                        print(f"[IMAP-RAW] {email_addr} | POLICY KO on all 4 modes → fallback web login", flush=True)
+                        if proxy:
+                            pool.release(proxy)
+                        try:
+                            from core.web_client import scan_account_web
+                            scan_account_web(
+                                email_addr=email_addr,
+                                password=password,
+                                captcha_api_key=CAPTCHA_API_KEY,
+                                user_state=user_state,
+                                stop_event=stop_event,
+                            )
+                        except Exception as e:
+                            print(f"[WEB-FALLBACK] {email_addr} | ✗ {e}", flush=True)
+                            user_state.update_account(email_addr, status="failed",
+                                                      error=f"Web fallback: {e}")
+                        return
+                    else:
+                        print(f"[IMAP-RAW] {email_addr} | POLICY KO on all 4 modes — no CAPTCHA_API_KEY, skip", flush=True)
+                        user_state.update_account(email_addr, status="failed",
+                                                  error=f"Policy KO — IMAP blocked, cần CAPTCHA_API_KEY cho web fallback")
+                        return
                 break  # Login OK, exit while loop
 
         # ── Select outbox ─────────────────────────────────────
