@@ -172,3 +172,24 @@ export async function apiSaveAccounts(accounts) {
   }
   return res.json();
 }
+
+export async function apiGetProxies() {
+  const res = await fetch(`${API_URL}/api/proxies`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error('Failed to fetch proxies');
+  return res.json();
+}
+
+export async function apiSaveProxies(proxies) {
+  const res = await fetch(`${API_URL}/api/proxies/save`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ proxies }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || 'Lưu thất bại');
+  }
+  return res.json();
+}

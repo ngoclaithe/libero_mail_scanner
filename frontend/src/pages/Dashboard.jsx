@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { apiGetState, apiStart, apiStop, apiUploadAccounts, apiUploadProxies, apiGetGallery, getMediaUrl, apiDeleteGallery, apiDownloadGallery, apiClearAllGallery, apiGetAccounts, apiSaveAccounts } from '../api';
+import { apiGetState, apiStart, apiStop, apiUploadAccounts, apiUploadProxies, apiGetGallery, getMediaUrl, apiDeleteGallery, apiDownloadGallery, apiClearAllGallery, apiGetAccounts, apiSaveAccounts, apiGetProxies, apiSaveProxies } from '../api';
 import {
   Menu, Mail, Image as ImageIcon, Activity, Globe,
   Play, Square, LogOut, Settings, User as UserIcon,
@@ -40,12 +40,8 @@ export default function Dashboard() {
   const [logs, setLogs] = useState([]);
   const [gallery, setGallery] = useState({});
   const [showAccountsModal, setShowAccountsModal] = useState(false);
+  const [showProxiesModal, setShowProxiesModal] = useState(false);
   const prevStateRef = useRef({});
-  const proxyFileInputRef = useRef(null);
-
-  const [proxyFile, setProxyFile] = useState(null);
-  const [uploadProxyStatus, setUploadProxyStatus] = useState(null);
-  const [uploadingProxy, setUploadingProxy] = useState(false);
 
   const addLog = useCallback((msg) => {
     const now = new Date().toLocaleTimeString('vi-VN');
@@ -119,28 +115,7 @@ export default function Dashboard() {
 
 
 
-  const handleProxyFileChange = (e) => {
-    const f = e.target.files[0];
-    setProxyFile(f || null);
-    setUploadProxyStatus(null);
-  };
 
-  const handleProxyUpload = async () => {
-    if (!proxyFile) return;
-    setUploadingProxy(true);
-    try {
-      const data = await apiUploadProxies(proxyFile);
-      if (data.ok) {
-        setUploadProxyStatus({ type: 'ok', msg: `✓ ${data.msg} (${data.count} proxies)` });
-        addLog(`🌐 Uploaded Proxies: ${data.msg} (${data.count} proxies)`);
-      } else {
-        setUploadProxyStatus({ type: 'err', msg: `✗ ${data.msg}` });
-      }
-    } catch (e) {
-      addLog('⚠ Lỗi tải proxy: ' + e.message);
-    }
-    setUploadingProxy(false);
-  };
 
   const t = state.totals || {};
   const running = state.status === 'running';
@@ -331,26 +306,11 @@ export default function Dashboard() {
         {activeTab === 'proxies' && (
           <div className="section">
             <div className="upload-bar" style={{ marginBottom: '20px' }}>
-              <label>🌐 Danh sách Proxy (.txt):</label>
-              <input
-                type="file"
-                ref={proxyFileInputRef}
-                accept=".txt"
-                onChange={handleProxyFileChange}
-                style={{ display: 'none' }}
-              />
-              <button className="btn btn-upload" onClick={() => proxyFileInputRef.current?.click()}>
-                Chọn File Proxy
+              <label>🌐 Danh sách Proxy:</label>
+              <button className="btn btn-upload" onClick={() => setShowProxiesModal(true)} style={{ gap: '6px' }}>
+                <Settings size={14} /> Quản lý Proxy
               </button>
-              <span className="file-label">{proxyFile ? proxyFile.name : 'Mặc định (SAR97653.txt)'}</span>
-              <button className="btn btn-upload" onClick={handleProxyUpload} disabled={!proxyFile || uploadingProxy}>
-                {uploadingProxy ? 'Đang nạp...' : '⬆ Tải lên Proxy'}
-              </button>
-              {uploadProxyStatus && (
-                <span className={`upload-status show ${uploadProxyStatus.type}`}>
-                  {uploadProxyStatus.msg}
-                </span>
-              )}
+              <span className="file-label muted">Tổng: {proxies.length} proxies đang hoạt động</span>
             </div>
 
             <div className="section-title">Tình Trạng Dàn Proxies</div>
@@ -390,6 +350,14 @@ export default function Dashboard() {
           onClose={() => setShowAccountsModal(false)}
           addLog={addLog}
           refreshUser={refreshUser}
+        />
+      )}
+
+      {/* ── Proxies Modal ── */}
+      {showProxiesModal && (
+        <ProxiesModal
+          onClose={() => setShowProxiesModal(false)}
+          addLog={addLog}
         />
       )}
       </div>
@@ -636,6 +604,231 @@ function AccountsModal({ onClose, addLog, refreshUser }) {
     </div>
   );
 }
+
+
+/* ══════════════════════════════════════════════════════════════
+   ProxiesModal — Quản lý danh sách proxy
+   ══════════════════════════════════════════════════════════════ */
+
+function ProxiesModal({ onClose, addLog }) {
+  const [proxies, setProxies] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editIdx, setEditIdx] = useState(-1);
+  const [editData, setEditData] = useState({ host: '', port: '', username: '', password: '' });
+  const [newData, setNewData] = useState({ host: '', port: '', username: '', password: '' });
+  const fileRef = useRef(null);
+
+  // Load existing proxies
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await apiGetProxies();
+        setProxies(data.proxies || []);
+      } catch (e) {
+        console.error('Load proxies fail', e);
+      }
+      setLoading(false);
+    })();
+  }, []);
+
+  // File import
+  const handleFileImport = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target.result;
+      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const parsed = [];
+      for (const line of lines) {
+        if (line.startsWith('#')) continue;
+        const parts = line.split(':');
+        if (parts.length >= 4) {
+          parsed.push({
+            host: parts[0],
+            port: parseInt(parts[1]) || 0,
+            username: parts[2],
+            password: parts[3],
+          });
+        }
+      }
+      if (parsed.length > 0) {
+        setProxies(parsed);
+        addLog?.(`🌐 Đã import ${parsed.length} proxies từ file ${file.name}`);
+      } else {
+        alert('Không tìm thấy proxy hợp lệ! Format: host:port:user:pass');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleDelete = (idx) => {
+    setProxies(prev => prev.filter((_, i) => i !== idx));
+    if (editIdx === idx) setEditIdx(-1);
+  };
+
+  const startEdit = (idx) => {
+    setEditIdx(idx);
+    const p = proxies[idx];
+    setEditData({ host: p.host, port: String(p.port), username: p.username, password: p.password });
+  };
+
+  const saveEdit = () => {
+    if (!editData.host.trim() || !editData.port) return;
+    setProxies(prev => prev.map((p, i) =>
+      i === editIdx ? { ...editData, port: parseInt(editData.port) || 0 } : p
+    ));
+    setEditIdx(-1);
+  };
+
+  const handleAddRow = () => {
+    if (!newData.host.trim() || !newData.port) return;
+    setProxies(prev => [...prev, { ...newData, port: parseInt(newData.port) || 0 }]);
+    setNewData({ host: '', port: '', username: '', password: '' });
+  };
+
+  const handleSave = async () => {
+    if (proxies.length === 0) { alert('Danh sách rỗng!'); return; }
+    setSaving(true);
+    try {
+      const data = await apiSaveProxies(proxies);
+      addLog?.(`✅ ${data.msg}`);
+      onClose();
+    } catch (e) {
+      alert(e.message);
+    }
+    setSaving(false);
+  };
+
+  // Escape to close
+  useEffect(() => {
+    const handleKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [onClose]);
+
+  return (
+    <div className="acc-modal-overlay" onClick={onClose}>
+      <div className="acc-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '900px' }}>
+        {/* Header */}
+        <div className="acc-modal-header">
+          <h2>🌐 Quản Lý Danh Sách Proxy</h2>
+          <button className="acc-modal-close" onClick={onClose}><X size={20} /></button>
+        </div>
+
+        {/* Toolbar */}
+        <div className="acc-modal-toolbar">
+          <input type="file" ref={fileRef} accept=".txt,.csv" onChange={handleFileImport} style={{ display: 'none' }} />
+          <button className="btn btn-upload" onClick={() => fileRef.current?.click()} style={{ gap: '6px' }}>
+            <Upload size={14} /> Import từ File (.txt)
+          </button>
+          <span className="muted" style={{ fontSize: '12px' }}>
+            Format: host:port:user:pass — {proxies.length} proxies
+          </span>
+        </div>
+
+        {/* Table */}
+        <div className="acc-modal-table-wrap">
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '40px', color: 'var(--muted)' }}>Loading...</div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: 36 }}>#</th>
+                  <th>Host</th>
+                  <th style={{ width: 80 }}>Port</th>
+                  <th>Username</th>
+                  <th>Password</th>
+                  <th style={{ width: 90 }}>Thao Tác</th>
+                </tr>
+              </thead>
+              <tbody>
+                {proxies.map((p, i) => (
+                  <tr key={i}>
+                    <td className="mono muted">{i + 1}</td>
+                    {editIdx === i ? (
+                      <>
+                        <td><input className="acc-edit-input" value={editData.host}
+                          onChange={e => setEditData({ ...editData, host: e.target.value })}
+                          onKeyDown={e => e.key === 'Enter' && saveEdit()} /></td>
+                        <td><input className="acc-edit-input" value={editData.port} type="number"
+                          onChange={e => setEditData({ ...editData, port: e.target.value })}
+                          onKeyDown={e => e.key === 'Enter' && saveEdit()} /></td>
+                        <td><input className="acc-edit-input" value={editData.username}
+                          onChange={e => setEditData({ ...editData, username: e.target.value })}
+                          onKeyDown={e => e.key === 'Enter' && saveEdit()} /></td>
+                        <td><input className="acc-edit-input" value={editData.password}
+                          onChange={e => setEditData({ ...editData, password: e.target.value })}
+                          onKeyDown={e => e.key === 'Enter' && saveEdit()} /></td>
+                        <td>
+                          <button className="acc-action-btn green" onClick={saveEdit} title="Lưu"><Save size={14} /></button>
+                          <button className="acc-action-btn" onClick={() => setEditIdx(-1)} title="Hủy"><X size={14} /></button>
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="mono small">{p.host}</td>
+                        <td className="mono small">{p.port}</td>
+                        <td className="mono small muted">{p.username}</td>
+                        <td className="mono small muted">{String(p.password).replace(/./g, '•').slice(0, 8)}</td>
+                        <td>
+                          <button className="acc-action-btn" onClick={() => startEdit(i)} title="Sửa"><Edit3 size={14} /></button>
+                          <button className="acc-action-btn red" onClick={() => handleDelete(i)} title="Xóa"><Trash2 size={14} /></button>
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                ))}
+                {/* Add row */}
+                <tr className="acc-add-row">
+                  <td className="mono muted"><Plus size={14} /></td>
+                  <td><input className="acc-edit-input" placeholder="host" value={newData.host}
+                    onChange={e => setNewData({ ...newData, host: e.target.value })}
+                    onKeyDown={e => e.key === 'Enter' && handleAddRow()} /></td>
+                  <td><input className="acc-edit-input" placeholder="port" value={newData.port} type="number"
+                    onChange={e => setNewData({ ...newData, port: e.target.value })}
+                    onKeyDown={e => e.key === 'Enter' && handleAddRow()} /></td>
+                  <td><input className="acc-edit-input" placeholder="user" value={newData.username}
+                    onChange={e => setNewData({ ...newData, username: e.target.value })}
+                    onKeyDown={e => e.key === 'Enter' && handleAddRow()} /></td>
+                  <td><input className="acc-edit-input" placeholder="password" value={newData.password}
+                    onChange={e => setNewData({ ...newData, password: e.target.value })}
+                    onKeyDown={e => e.key === 'Enter' && handleAddRow()} /></td>
+                  <td>
+                    <button className="acc-action-btn green" onClick={handleAddRow}
+                      disabled={!newData.host.trim() || !newData.port} title="Thêm">
+                      <Plus size={14} />
+                    </button>
+                  </td>
+                </tr>
+                {proxies.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="muted" style={{ textAlign: 'center', padding: 30 }}>
+                      Chưa có proxy nào. Import file hoặc thêm thủ công ở trên.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="acc-modal-footer">
+          <button className="btn btn-upload" onClick={onClose}>Hủy</button>
+          <button className="btn btn-start" onClick={handleSave} disabled={saving || proxies.length === 0}
+            style={{ gap: '6px' }}>
+            <Save size={14} /> {saving ? 'Đang lưu...' : `Lưu & Nạp (${proxies.length} proxies)`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const PER_PAGE = 24;
 
 function GalleryTab({ gallery }) {

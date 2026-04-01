@@ -303,6 +303,66 @@ async def api_upload_proxies(
         "count": len(sc.pool) if sc.pool else 0
     }
 
+
+class ProxyItem(BaseModel):
+    host: str
+    port: int
+    username: str
+    password: str
+
+class SaveProxiesRequest(BaseModel):
+    proxies: List[ProxyItem]
+
+
+@app.get("/api/proxies")
+async def api_get_proxies(current_user: TokenData = Depends(get_current_user)):
+    """Return the current proxy list for this user (from file)."""
+    sc = scanner_manager.get_scanner(current_user.user_id)
+    proxy_file = sc._proxy_file
+    proxies = []
+    try:
+        with open(proxy_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split(":")
+                if len(parts) >= 4:
+                    proxies.append({
+                        "host": parts[0],
+                        "port": int(parts[1]),
+                        "username": parts[2],
+                        "password": parts[3],
+                    })
+    except FileNotFoundError:
+        pass
+    return {"proxies": proxies}
+
+
+@app.post("/api/proxies/save")
+async def api_save_proxies(
+    req: SaveProxiesRequest,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """Save proxies from JSON (edited in modal)."""
+    count = len(req.proxies)
+    if count == 0:
+        raise HTTPException(400, "Danh sách rỗng")
+
+    save_path = f"proxies_{current_user.user_id}.txt"
+    with open(save_path, "w", encoding="utf-8") as f:
+        for p in req.proxies:
+            f.write(f"{p.host}:{p.port}:{p.username}:{p.password}\n")
+
+    sc = scanner_manager.get_scanner(current_user.user_id)
+    sc.set_proxy_file(save_path)
+
+    return {
+        "ok": True,
+        "msg": f"Đã lưu {count} proxies thành công",
+        "count": count,
+    }
+
 @app.get("/api/gallery")
 async def api_gallery(current_user: TokenData = Depends(get_current_user)):
     res = {}
