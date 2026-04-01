@@ -16,7 +16,7 @@ fi
 
 echo "=> Đang kiểm tra uv..."
 if ! command -v uv &> /dev/null; then
-    curl -LsSf https://astral.sh/uv/install.sh | sh
+    curl -4 -LsSf https://astral.sh/uv/install.sh | sh
     source $HOME/.cargo/env
 fi
 
