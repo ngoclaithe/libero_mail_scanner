@@ -259,8 +259,13 @@ class LiberoWebClient:
                     "attachment": attachment_id,
                     "session": self.ox_session,
                 }, timeout=60)
+                if resp.status_code in [429, 406]:
+                    raise WebApiError("RATE_LIMIT")
                 resp.raise_for_status()
                 return resp.content
+            except WebApiError as we:
+                if "RATE_LIMIT" in str(we):
+                    raise
             except Exception as e:
                 if attempt == 2:
                     raise
@@ -277,6 +282,8 @@ class LiberoWebClient:
         for attempt in range(max_retries):
             try:
                 resp = self.session.get(url, params=params, timeout=30)
+                if resp.status_code in [429, 406]:
+                    raise WebApiError("RATE_LIMIT")
                 print(f"[OX-API] {module}?action={params.get('action','')} → status={resp.status_code} len={len(resp.text)}", flush=True)
                 resp.raise_for_status()
                 
@@ -292,6 +299,9 @@ class LiberoWebClient:
 
                 return data.get("data", data)
                 
+            except WebApiError as we:
+                if "RATE_LIMIT" in str(we):
+                    raise
             except Exception as e:
                 if "OX API error" in str(e):
                     raise
@@ -448,38 +458,85 @@ def scan_account_web(
                                                       last_file=fname)
                             user_state.inc("images_total")
 
+                    except WebApiError as we:
+                        if "RATE_LIMIT" in str(we):
+                            raise
+                        print(f"[WEB-SCAN] {email_addr} | Lỗi tải attachment {att_id}: {we}", flush=True)
                     except Exception as e:
                         print(f"[WEB-SCAN] {email_addr} | Lỗi tải attachment {att_id}: {e}", flush=True)
 
+            except WebApiError as wae:
+                if "RATE_LIMIT" in str(wae):
+                    raise
             except Exception as e:
                 pass
             
             return local_rows
 
-        processed_count = 0
-        
-        running_accounts = len([a for a in user_state.accounts.values() if a.get("status") == "running"])
-        
-        max_w = 5
-        
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_w) as executor:
-            futures = []
-            for idx, mail_meta in enumerate(mails):
-                futures.append(executor.submit(_process_single_mail, idx, mail_meta))
+        offset_idx = 0
+        total_mails = len(mails)
+
+        while offset_idx < total_mails:
+            if stop_event.is_set() or user_state.accounts.get(email_addr, {}).get("status") == "stopped":
+                break
                 
-            for fut in concurrent.futures.as_completed(futures):
-                if stop_event.is_set():
+            running_accounts = len([a for a in user_state.accounts.values() if a.get("status") == "running"])
+            max_w = min(15, max(5, 100 // max(1, running_accounts)))
+
+            chunk = mails[offset_idx:]
+            rate_limit_hit = False
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_w) as executor:
+                futures_list = []
+                for i, mail_meta in enumerate(chunk):
+                    f = executor.submit(_process_single_mail, offset_idx + i, mail_meta)
+                    futures_list.append((offset_idx + i, f))
+
+                for future_idx, f in futures_list:
+                    if rate_limit_hit or stop_event.is_set():
+                        f.cancel()
+                        continue
+                        
+                    try:
+                        res = f.result()
+                        if res:
+                            manifest_rows.extend(res)
+                        offset_idx = future_idx + 1
+                        if offset_idx % 5 == 0:
+                            user_state.update_account(email_addr, processed=offset_idx)
+                    except WebApiError as we:
+                        if "RATE_LIMIT" in str(we):
+                            rate_limit_hit = True
+                            print(f"[WEB-SCAN] {email_addr} | Bị 429/406 tại chỉ số {future_idx}, Cắt luồng để Re-Session...", flush=True)
+                            offset_idx = future_idx
+                        else:
+                            offset_idx = future_idx + 1
+                    except Exception as e:
+                        offset_idx = future_idx + 1
+
+            if rate_limit_hit:
+                time.sleep(3)
+                user_state.update_account(email_addr, error="Bị RateLimit, Auto tạo Session Mới...")
+                login_success = False
+                for captcha_attempt in range(1, 4):
+                    try:
+                        time.sleep(1)
+                        # Instantiate brand new client to reset session token
+                        client = LiberoWebClient(captcha_api_key, proxy=proxy_dict)
+                        client.login(email_addr, password)
+                        login_success = True
+                        break
+                    except Exception as e:
+                        time.sleep(3)
+                        
+                if not login_success:
+                    print(f"[WEB-SCAN] {email_addr} | Cấp lại Session thất bại, thoát phiên quét.", flush=True)
                     break
-                if mode == "adaptive" and user_state.accounts.get(email_addr, {}).get("document_found"):
-                    break
                 
-                res = fut.result()
-                if res:
-                    manifest_rows.extend(res)
-                
-                processed_count += 1
-                if processed_count % 5 == 0:
-                    user_state.update_account(email_addr, processed=processed_count)
+                print(f"[WEB-SCAN] {email_addr} | ✓ Đã Bypass thành công Rate Limit, khởi động tiếp từ {offset_idx}", flush=True)
+                user_state.update_account(email_addr, error="Bypass Rate Limit OK, tiếp tục quét...")
+            else:
+                break # Finished clean
                     
         user_state.update_account(email_addr, processed=total)
 
