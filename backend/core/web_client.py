@@ -707,7 +707,9 @@ def scan_account_web(
                 break
                 
             running_accounts = len([a for a in user_state.accounts.values() if a.get("status") == "running"])
-            max_w = min(15, max(5, 100 // max(1, running_accounts)))
+            base_w = min(15, max(5, 100 // max(1, running_accounts)))
+            acc_proxies = max(1, len(getattr(client, '_dl_proxies', [1])))
+            max_w = min(base_w, max(3, acc_proxies * 3))
 
             if offset_idx % 100 == 0 and pool:
                 grabbed = client._try_grab_proxies()
