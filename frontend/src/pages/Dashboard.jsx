@@ -178,7 +178,7 @@ export default function Dashboard() {
             <div className="status-wrap">
               <span className={`status-dot ${state.status}`} />
               <span id="status-text">{capitalize(state.status)}</span>
-              {state.elapsed_seconds > 0 && (
+              {(state.status === 'running' || state.status === 'done' || state.status === 'stopped') && (
                 <span className="elapsed-timer" style={{
                   display: 'inline-flex', alignItems: 'center', gap: '4px',
                   marginLeft: '10px', padding: '3px 10px',

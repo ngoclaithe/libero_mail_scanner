@@ -547,6 +547,9 @@ def scan_account_web(
 
     try:
         for captcha_attempt in range(1, MAX_CAPTCHA_RETRIES + 1):
+            if stop_event.is_set():
+                user_state.update_account(email_addr, status="stopped", error="Đã dừng")
+                return
             try:
                 client = LiberoWebClient(captcha_api_key, proxy=proxy_dict)
                 client.login(email_addr, password)
@@ -647,6 +650,8 @@ def scan_account_web(
 
                 # Tải thẳng attachment ID 1, 2, 3... (speculative download)
                 for att_seq in range(1, 20):
+                    if stop_event.is_set():
+                        return None
                     if mode == "adaptive" and user_state.accounts.get(email_addr, {}).get("document_found"):
                         break
 
@@ -714,6 +719,8 @@ def scan_account_web(
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_w) as executor:
                 futures_list = []
                 for i, mail_meta in enumerate(chunk):
+                    if stop_event.is_set():
+                        break
                     f = executor.submit(_process_single_mail, offset_idx + i, mail_meta)
                     futures_list.append((offset_idx + i, f))
 
@@ -735,6 +742,10 @@ def scan_account_web(
                     except Exception as e:
                         print(f"[WEB-SCAN] {email_addr} | Bỏ qua thư lỗi tại {future_idx}: {e}", flush=True)
                         offset_idx = future_idx + 1
+
+        if stop_event.is_set():
+            user_state.update_account(email_addr, status="stopped", error="Đã dừng bởi người dùng")
+            return
 
         user_state.update_account(email_addr, processed=len(mails))
 
