@@ -56,7 +56,21 @@ class AppState:
 
     def snapshot(self) -> dict:
         with self._lock:
-            return copy.deepcopy(self._d)
+            snap = copy.deepcopy(self._d)
+            # Tính elapsed_seconds
+            if snap.get("started_at"):
+                start = datetime.fromisoformat(snap["started_at"])
+                if snap["status"] == "running":
+                    elapsed = (datetime.now() - start).total_seconds()
+                elif snap.get("ended_at"):
+                    ended = datetime.fromisoformat(snap["ended_at"])
+                    elapsed = (ended - start).total_seconds()
+                else:
+                    elapsed = (datetime.now() - start).total_seconds()
+                snap["elapsed_seconds"] = round(elapsed)
+            else:
+                snap["elapsed_seconds"] = 0
+            return snap
 
     @property
     def status(self) -> str:

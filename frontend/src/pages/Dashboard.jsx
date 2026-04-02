@@ -6,7 +6,7 @@ import {
   Menu, Mail, Image as ImageIcon, Activity, Globe,
   Play, Square, LogOut, Settings, User as UserIcon,
   Trash2, Download, CheckSquare, X, ChevronLeft, ChevronRight,
-  Upload, Plus, Edit3, Save
+  Upload, Plus, Edit3, Save, Clock
 } from 'lucide-react';
 
 const POLL_MS = 2000;
@@ -178,6 +178,23 @@ export default function Dashboard() {
             <div className="status-wrap">
               <span className={`status-dot ${state.status}`} />
               <span id="status-text">{capitalize(state.status)}</span>
+              {state.elapsed_seconds > 0 && (
+                <span className="elapsed-timer" style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '4px',
+                  marginLeft: '10px', padding: '3px 10px',
+                  borderRadius: '8px', fontSize: '13px', fontWeight: '600',
+                  fontFamily: 'monospace', letterSpacing: '0.5px',
+                  background: state.status === 'running'
+                    ? 'linear-gradient(135deg, rgba(99,102,241,0.15), rgba(139,92,246,0.15))'
+                    : 'rgba(255,255,255,0.05)',
+                  color: state.status === 'running' ? '#a78bfa' : 'var(--text2)',
+                  border: `1px solid ${state.status === 'running' ? 'rgba(139,92,246,0.3)' : 'var(--border)'}`,
+                  animation: state.status === 'running' ? 'pulse-glow 2s ease-in-out infinite' : 'none',
+                }}>
+                  <Clock size={13} />
+                  {formatElapsed(state.elapsed_seconds)}
+                </span>
+              )}
             </div>
             <select 
                value={scanMode} 
@@ -1238,4 +1255,12 @@ function GalleryTab({ gallery }) {
 
 function capitalize(s) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
+}
+
+function formatElapsed(totalSeconds) {
+  if (!totalSeconds || totalSeconds <= 0) return '00:00:00';
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
