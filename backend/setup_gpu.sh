@@ -55,8 +55,8 @@ fi
 echo "=> Viết file cấu trúc tự động cho Tunnel..."
 mkdir -p "$HOME/.cloudflared"
 cat << 'EOF' > "$HOME/.cloudflared/config.yml"
-tunnel: 037cc209-ee74-4545-b610-e1bf1591fd5f
-credentials-file: /home/ezycloudx-admin/.cloudflared/037cc209-ee74-4545-b610-e1bf1591fd5f.json
+tunnel: 1faddfa5-a701-4675-96b6-2a43e515d502
+credentials-file: /home/ezycloudx-admin/.cloudflared/1faddfa5-a701-4675-96b6-2a43e515d502.json
 
 ingress:
   - hostname: gpu-api-libero.kekhaidichvucong.to
@@ -67,6 +67,6 @@ EOF
 if command -v pm2 &> /dev/null; then
     echo "=> Đang cài đặt cắm Tunnel chạy ngầm qua PM2..."
     pm2 delete cf_tunnel 2>/dev/null || true
-    pm2 start "cloudflared tunnel run 037cc209-ee74-4545-b610-e1bf1591fd5f" --name "cf_tunnel"
+    pm2 start "cloudflared tunnel run 1faddfa5-a701-4675-96b6-2a43e515d502" --name "cf_tunnel"
     pm2 save
 fi

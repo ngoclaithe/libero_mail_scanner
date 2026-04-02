@@ -549,7 +549,20 @@ def scan_account_web(
                     raise
                 continue
             except Exception as ge:
-                print(f"[WEB-LOGIN] {email_addr} | Lỗi mạng/ngoại lệ lần {captcha_attempt}/{MAX_CAPTCHA_RETRIES}: {ge}", flush=True)
+                err_str = str(ge).lower()
+                is_proxy_error = any(k in err_str for k in ["proxy", "tunnel", "502", "503", "connect"])
+                print(f"[WEB-LOGIN] {email_addr} | Lỗi {'proxy' if is_proxy_error else 'mạng'} lần {captcha_attempt}/{MAX_CAPTCHA_RETRIES}: {ge}", flush=True)
+
+                # Proxy chết → đánh dấu dead, lấy proxy mới từ pool
+                if is_proxy_error and pool and proxy_dict:
+                    pool.mark_dead(proxy_dict, error=str(ge)[:100])
+                    new_proxy = pool.acquire(email_addr)
+                    if new_proxy:
+                        print(f"[WEB-LOGIN] {email_addr} | Đổi proxy: {proxy_dict.id} → {new_proxy.id}", flush=True)
+                        proxy_dict = new_proxy
+                    else:
+                        print(f"[WEB-LOGIN] {email_addr} | Hết proxy khả dụng!", flush=True)
+
                 if captcha_attempt >= MAX_CAPTCHA_RETRIES:
                     raise WebLoginError(f"System/Network error: {ge}")
                 time.sleep(3)
