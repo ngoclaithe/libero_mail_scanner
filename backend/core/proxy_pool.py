@@ -4,7 +4,6 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-import socks
 
 class ProxyStatus(str, Enum):
     ACTIVE       = "active"
@@ -127,31 +126,3 @@ class ProxyPool:
 
     def __len__(self) -> int:
         return len(self._proxies)
-
-    @staticmethod
-    def make_connection(host: str, port: int,
-                        proxy: Optional[ProxyInfo],
-                        timeout: int = 30):
-        if proxy:
-            import socket
-            import base64
-            sock = socket.create_connection((proxy.host, proxy.port), timeout=timeout)
-            auth = base64.b64encode(f"{proxy.username}:{proxy.password}".encode()).decode()
-            req = (f"CONNECT {host}:{port} HTTP/1.1\r\n"
-                   f"Host: {host}:{port}\r\n"
-                   f"Proxy-Authorization: Basic {auth}\r\n\r\n")
-            sock.sendall(req.encode())
-            
-            resp = b""
-            while b"\r\n\r\n" not in resp:
-                c = sock.recv(1024)
-                if not c: break
-                resp += c
-                
-            if not resp.startswith(b"HTTP/1.") or b" 200" not in resp.split(b"\r\n")[0]:
-                sock.close()
-                raise Exception(f"Proxy rejected (407?): {resp[:50].decode(errors='ignore')}")
-        else:
-            import socket
-            sock = socket.create_connection((host, port), timeout=timeout)
-        return sock

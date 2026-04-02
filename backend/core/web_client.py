@@ -42,6 +42,9 @@ class LiberoWebClient:
         })
         self._rate_lock = threading.Lock()
         self._pause_until = 0.0
+        self._last_request_time = 0.0
+        self._request_delay = 0.3
+        self._consecutive_429 = 0
 
         self._dl_proxies = []
         self._dl_sessions = {}
@@ -106,6 +109,22 @@ class LiberoWebClient:
                          if time.time() >= self._proxy_pause.get(p.id, 0))
             print(f"[RATE-LIMIT] Proxy {proxy.id} bị 429, pause 15s. "
                   f"{active}/{len(self._dl_proxies)} proxy còn OK", flush=True)
+
+    def _throttle(self):
+        """Per-account pacing — giới hạn ~3 req/s cho account này."""
+        with self._rate_lock:
+            now = time.time()
+            gap = self._last_request_time + self._request_delay - now
+            if gap > 0:
+                time.sleep(gap)
+            self._last_request_time = time.time()
+
+    def _handle_429(self):
+        """Exponential backoff khi bị 429: 10s → 20s → 40s → 80s."""
+        self._consecutive_429 += 1
+        wait = min(80, 10 * (2 ** min(self._consecutive_429 - 1, 3)))
+        print(f"[RATE-LIMIT] 429 lần {self._consecutive_429}, chờ {wait}s...", flush=True)
+        time.sleep(wait)
 
     def _try_grab_proxies(self):
         if not self._pool_ref:
@@ -359,6 +378,84 @@ class LiberoWebClient:
                 time.sleep(1)
         raise WebApiError("RATE_LIMIT Exhausted after proxy rotation")
 
+    def download_attachment_smart(self, folder: str, mail_id: str,
+                                  attachment_id: str):
+        """Tải attachment trực tiếp, check Content-Type từ header.
+
+        Returns:
+            (bytes, mime, filename) — thành công
+            "skip"                 — text/html body part, thử att tiếp
+            None                   — không tồn tại (404/OX error), dừng
+        Raises:
+            WebApiError            — 429 exhausted sau nhiều lần retry
+        """
+        url = f"{self.BASE_MAIL}/appsuite/api/mail"
+
+        for attempt in range(10):
+            self._throttle()
+            sess, proxy = self._get_dl_session()
+            try:
+                resp = sess.get(url, params={
+                    "action": "attachment",
+                    "folder": folder,
+                    "id": mail_id,
+                    "attachment": attachment_id,
+                    "session": self.ox_session,
+                }, timeout=60)
+
+                if resp.status_code in [429, 406]:
+                    self._handle_429()
+                    continue
+
+                # Request OK → reset backoff
+                self._consecutive_429 = 0
+
+                if resp.status_code == 404:
+                    return None
+
+                content_type = resp.headers.get('Content-Type', '').split(';')[0].strip().lower()
+
+                # JSON response = OX API error (attachment không tồn tại)
+                if content_type == 'application/json':
+                    try:
+                        data = resp.json()
+                        if 'error' in data:
+                            return None
+                    except Exception:
+                        pass
+                    return None
+
+                # HTML/text = inline body part, không phải file → skip, thử att tiếp
+                if content_type.startswith('text/'):
+                    return "skip"
+
+                content = resp.content
+                if not content or len(content) < 100:
+                    return "skip"
+
+                # Lấy filename từ Content-Disposition header
+                filename = f"att_{attachment_id}"
+                cd = resp.headers.get('Content-Disposition', '')
+                if 'filename' in cd:
+                    from urllib.parse import unquote
+                    m = re.search(r'filename\*?=(?:UTF-8\'\'\'|")?([^";\r\n]+)', cd, re.IGNORECASE)
+                    if m:
+                        fn = m.group(1).strip('"\' ')
+                        if fn:
+                            filename = unquote(fn)
+
+                return (content, content_type, filename)
+
+            except WebApiError:
+                raise
+            except Exception as e:
+                if attempt >= 9:
+                    print(f"[WEB-DL] Lỗi tải att {mail_id}/{attachment_id}: {e}", flush=True)
+                    return None
+                time.sleep(1)
+
+        raise WebApiError(f"429 exhausted sau 10 lần retry cho mail {mail_id}")
+
     def _api(self, module: str, **params):
         params["session"] = self.ox_session
         url = f"{self.BASE_MAIL}/appsuite/api/{module}"
@@ -458,12 +555,8 @@ def scan_account_web(
                 time.sleep(3)
                 continue
 
-        if pool:
-            extra_proxies = pool.acquire_multiple(f"{email_addr}#dl", count=4)
-            if extra_proxies:
-                client.add_download_proxies(extra_proxies)
-                client.set_pool_ref(pool, email_addr)
-                print(f"[PROXY-GRAB] {email_addr} grabbed {len(extra_proxies)} extra proxies for download", flush=True)
+        # Per-account rate limit → multi-proxy download vô nghĩa
+        # Giữ 1 proxy login ban đầu, giải phóng proxy cho account khác
 
         user_state.update_account(email_addr, error="Web login OK, đang quét...")
 
@@ -490,7 +583,7 @@ def scan_account_web(
 
         def _process_single_mail(idx, mail_meta):
             nonlocal images_found
-            
+
             if stop_event.is_set() or user_state.accounts.get(email_addr, {}).get("status") == "stopped":
                 return None
             if mode == "adaptive" and user_state.accounts.get(email_addr, {}).get("document_found"):
@@ -504,72 +597,67 @@ def scan_account_web(
                 else:
                     return None
 
-                detail = client.get_mail_detail(folder, mail_id)
-                if not detail:
-                    return None
-
-                attachments = detail.get("attachments", [])
-                date = detail.get("received_date", "")
+                # Lấy date/to từ list response — KHÔNG cần get_mail_detail!
+                # Columns: 0=id, 1=folder, 2=has_att, 3=from, 4=to, 5=subject, 6=date, 7=size
                 to_addr = ""
-                to_data = detail.get("to", [])
-                if to_data and isinstance(to_data, list) and len(to_data) > 0:
-                    to_addr = str(to_data[0][-1]) if isinstance(to_data[0], list) else str(to_data[0])
+                date = ""
+                if isinstance(mail_meta, list):
+                    if len(mail_meta) > 4 and mail_meta[4]:
+                        to_data = mail_meta[4]
+                        if isinstance(to_data, list) and len(to_data) > 0:
+                            to_addr = str(to_data[0][-1]) if isinstance(to_data[0], list) else str(to_data[0])
+                        elif isinstance(to_data, str):
+                            to_addr = to_data
+                    if len(mail_meta) > 6 and mail_meta[6]:
+                        date = str(mail_meta[6])
 
-                for att in attachments:
+                # Tải thẳng attachment ID 1, 2, 3... (speculative download)
+                for att_seq in range(1, 20):
                     if mode == "adaptive" and user_state.accounts.get(email_addr, {}).get("document_found"):
                         break
 
-                    if isinstance(att, dict):
-                        mime = att.get("content_type", "").lower()
-                        att_id = att.get("id", "")
-                        filename = att.get("filename", f"att_{att_id}")
-                        size = att.get("size", 0)
-                    elif isinstance(att, list) and len(att) >= 4:
-                        att_id = str(att[0])
-                        mime = str(att[1]).lower()
-                        filename = str(att[3]) if att[3] else f"att_{att_id}"
-                        size = att[2] if len(att) > 2 else 0
-                    else:
-                        continue
+                    try:
+                        result = client.download_attachment_smart(folder, mail_id, str(att_seq))
+                    except WebApiError:
+                        break  # 429 exhausted → dừng mail này
+
+                    if result is None:
+                        break      # 404 / OX error → hết attachment
+                    if result == "skip":
+                        continue   # text/html body part → thử attachment tiếp
+
+                    content, mime, filename = result
 
                     if mime not in ALLOWED_MIME:
                         continue
-                    if size and (size < 10_000 or size > 15_000_000):
+                    if len(content) < 10_000 or len(content) > 15_000_000:
                         continue
 
-                    try:
-                        content = client.download_attachment(folder, mail_id, att_id)
-                        if not content or len(content) < 1000:
-                            continue
+                    fname = _safe_name(filename)
+                    dest = raw_dir / f"mail_{idx:04d}_{fname}"
+                    dest.write_bytes(content)
 
-                        fname = _safe_name(filename)
-                        dest = raw_dir / f"mail_{idx:04d}_{fname}"
-                        dest.write_bytes(content)
+                    ai_queue.put((email_addr, str(dest), mime, user_state.user_id))
 
-                        ai_queue.put((email_addr, str(dest), mime, user_state.user_id))
-                        
-                        with state_lock:
-                            images_found += 1
-                            local_rows.append({
-                                "mail_no": idx,
-                                "date": date,
-                                "recipient": to_addr,
-                                "filename": fname,
-                                "filepath": str(dest),
-                                "size": len(content),
-                                "mime": mime,
-                            })
-                            user_state.update_account(email_addr,
-                                                      images_found=images_found,
-                                                      last_file=fname)
-                            user_state.inc("images_total")
-
-                    except Exception as e:
-                        print(f"[WEB-SCAN] {email_addr} | Lỗi tải attachment {att_id}: {e}", flush=True)
+                    with state_lock:
+                        images_found += 1
+                        local_rows.append({
+                            "mail_no": idx,
+                            "date": date,
+                            "recipient": to_addr,
+                            "filename": fname,
+                            "filepath": str(dest),
+                            "size": len(content),
+                            "mime": mime,
+                        })
+                        user_state.update_account(email_addr,
+                                                  images_found=images_found,
+                                                  last_file=fname)
+                        user_state.inc("images_total")
 
             except Exception as e:
                 pass
-            
+
             return local_rows
 
         offset_idx = 0
@@ -582,10 +670,7 @@ def scan_account_web(
             running_accounts = len([a for a in user_state.accounts.values() if a.get("status") == "running"])
             max_w = min(15, max(5, 100 // max(1, running_accounts)))
 
-            if offset_idx % 100 == 0 and pool:
-                grabbed = client._try_grab_proxies()
-                if grabbed:
-                    extra_proxies.extend(grabbed)
+            # Per-account rate limit → không cần grab thêm proxy
 
             chunk = mails[offset_idx:]
 
@@ -637,9 +722,7 @@ def scan_account_web(
         user_state.inc("accounts_failed")
         print(f"[WEB-API] {email_addr} | ✗ Unexpected: {e}", flush=True)
     finally:
-        if pool:
-            for p in extra_proxies:
-                pool.release(p)
+        pass  # Proxy login được release bởi worker.py
 
 def _safe_name(name: str) -> str:
     name = re.sub(r'[<>:"/\\|?*]', '_', name)

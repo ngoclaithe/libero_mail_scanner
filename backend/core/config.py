@@ -2,12 +2,6 @@ import os
 import multiprocessing as mp
 from pathlib import Path
 
-IMAP_HOST    = "imapmail.libero.it"
-IMAP_PORT    = 993
-SENT_FOLDER  = "outbox"
-IMAP_TIMEOUT = 30
-RETRY_MAX    = 3
-
 CAPTCHA_API_KEY = os.environ.get("CAPTCHA_API_KEY", "")
 
 def get_system_specs():
@@ -40,19 +34,17 @@ sys_specs = get_system_specs()
 
 if sys_specs["has_gpu"]:
     USE_CUDA = True
-    BATCH_SIZE = 100
-    AI_WORKERS = min(int(sys_specs["vram_gb"] / 2.0), 12)  # Increased limit for big GPUs
-    MAX_WORKERS = min(sys_specs["cpu_count"] * 10, 500)   # Allow up to 500 IMAP workers
+    AI_WORKERS = min(int(sys_specs["vram_gb"] / 2.0), 12)
+    MAX_WORKERS = min(sys_specs["cpu_count"] * 10, 200)
 else:
     USE_CUDA = False
-    BATCH_SIZE = 50
     AI_WORKERS = min(sys_specs["cpu_count"] - 1, 3) 
     MAX_WORKERS = min(sys_specs["cpu_count"] * 10, 40)
 
 if AI_WORKERS < 1: AI_WORKERS = 1
 
 print(f"[AUTO-TUNE] Phần cứng: {sys_specs['cpu_count']} Cores, RAM={sys_specs['ram_gb']:.1f}GB, VRAM={sys_specs['vram_gb']:.1f}GB")
-print(f"[AUTO-TUNE] Cấu hình: AI_WORKERS={AI_WORKERS} (GPU={USE_CUDA}), IMAP_WORKERS={MAX_WORKERS}, BATCH={BATCH_SIZE}", flush=True)
+print(f"[AUTO-TUNE] Cấu hình: AI_WORKERS={AI_WORKERS} (GPU={USE_CUDA}), WEB_WORKERS={MAX_WORKERS}", flush=True)
 
 PROXY_FILE    = "SAR97653.txt"
 ACCOUNTS_FILE = "accounts.csv"
