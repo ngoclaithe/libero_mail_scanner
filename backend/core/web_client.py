@@ -714,34 +714,38 @@ def scan_account_web(
                 if grabbed:
                     extra_proxies.extend(grabbed)
 
-            chunk = mails[offset_idx:]
+            chunk = mails[offset_idx:offset_idx + 50]
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_w) as executor:
-                futures_list = []
+                futures_dict = {}
                 for i, mail_meta in enumerate(chunk):
                     if stop_event.is_set():
                         break
                     f = executor.submit(_process_single_mail, offset_idx + i, mail_meta)
-                    futures_list.append((offset_idx + i, f))
+                    futures_dict[f] = offset_idx + i
 
-                for future_idx, f in futures_list:
+                processed_in_chunk = 0
+                for f in concurrent.futures.as_completed(futures_dict):
                     if stop_event.is_set():
                         f.cancel()
                         continue
                         
+                    future_idx = futures_dict[f]
                     try:
                         res = f.result()
                         if res:
                             manifest_rows.extend(res)
-                        offset_idx = future_idx + 1
-                        if offset_idx % 5 == 0:
-                            user_state.update_account(email_addr, processed=offset_idx)
                     except WebApiError as we:
-                        print(f"[WEB-SCAN] {email_addr} | Lỗi WebAPI (Exhausted): {we}", flush=True)
+                        print(f"[WEB-SCAN] {email_addr} | Lỗi WebAPI tại idx {future_idx}: {we}", flush=True)
                         raise
                     except Exception as e:
                         print(f"[WEB-SCAN] {email_addr} | Bỏ qua thư lỗi tại {future_idx}: {e}", flush=True)
-                        offset_idx = future_idx + 1
+                        
+                    processed_in_chunk += 1
+                    if processed_in_chunk % 5 == 0 or processed_in_chunk == len(futures_dict):
+                        user_state.update_account(email_addr, processed=offset_idx + processed_in_chunk)
+
+            offset_idx += len(chunk)
 
         if stop_event.is_set():
             user_state.update_account(email_addr, status="stopped", error="Đã dừng bởi người dùng")
