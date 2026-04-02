@@ -43,7 +43,9 @@ class LiberoWebClient:
         self._rate_lock = threading.Lock()
         self._pause_until = 0.0
         self._last_request_time = 0.0
-        self._request_delay = 0.3
+        self._request_delay = 0.05     # Adaptive: start 50ms (20 req/s)
+        self._min_delay = 0.05         # Floor: 50ms
+        self._max_delay = 2.0          # Ceiling: 2s
         self._consecutive_429 = 0
 
         self._dl_proxies = []
@@ -120,11 +122,20 @@ class LiberoWebClient:
             self._last_request_time = time.time()
 
     def _handle_429(self):
-        """Exponential backoff khi bị 429: 10s → 20s → 40s → 80s."""
+        """Adaptive backoff: tăng delay giữa requests & chờ cooldown."""
         self._consecutive_429 += 1
-        wait = min(80, 10 * (2 ** min(self._consecutive_429 - 1, 3)))
-        print(f"[RATE-LIMIT] 429 lần {self._consecutive_429}, chờ {wait}s...", flush=True)
+        # Tăng delay giữa requests (nhân đôi, max 2s)
+        self._request_delay = min(self._max_delay, self._request_delay * 2)
+        # Cooldown chờ trước khi retry
+        wait = min(60, 5 * (2 ** min(self._consecutive_429 - 1, 3)))
+        print(f"[RATE-LIMIT] 429 lần {self._consecutive_429}, delay→{self._request_delay:.2f}s, chờ {wait}s...", flush=True)
         time.sleep(wait)
+
+    def _on_request_ok(self):
+        """Request thành công → giảm dần delay về min."""
+        self._consecutive_429 = 0
+        if self._request_delay > self._min_delay:
+            self._request_delay = max(self._min_delay, self._request_delay * 0.9)
 
     def _try_grab_proxies(self):
         if not self._pool_ref:
@@ -407,8 +418,8 @@ class LiberoWebClient:
                     self._handle_429()
                     continue
 
-                # Request OK → reset backoff
-                self._consecutive_429 = 0
+                # Request OK → giảm dần delay
+                self._on_request_ok()
 
                 if resp.status_code == 404:
                     return None
@@ -568,8 +579,12 @@ def scan_account_web(
                 time.sleep(3)
                 continue
 
-        # Per-account rate limit → multi-proxy download vô nghĩa
-        # Giữ 1 proxy login ban đầu, giải phóng proxy cho account khác
+        # Lấy thêm proxy cho download (tăng network parallelism)
+        if pool:
+            extra_proxies = pool.acquire_multiple(f"{email_addr}#dl", count=3)
+            if extra_proxies:
+                client.add_download_proxies(extra_proxies)
+                print(f"[PROXY-GRAB] {email_addr} grabbed {len(extra_proxies)} extra proxies", flush=True)
 
         user_state.update_account(email_addr, error="Web login OK, đang quét...")
 
@@ -683,7 +698,10 @@ def scan_account_web(
             running_accounts = len([a for a in user_state.accounts.values() if a.get("status") == "running"])
             max_w = min(15, max(5, 100 // max(1, running_accounts)))
 
-            # Per-account rate limit → không cần grab thêm proxy
+            if offset_idx % 100 == 0 and pool:
+                grabbed = client._try_grab_proxies()
+                if grabbed:
+                    extra_proxies.extend(grabbed)
 
             chunk = mails[offset_idx:]
 
@@ -735,7 +753,9 @@ def scan_account_web(
         user_state.inc("accounts_failed")
         print(f"[WEB-API] {email_addr} | ✗ Unexpected: {e}", flush=True)
     finally:
-        pass  # Proxy login được release bởi worker.py
+        if pool:
+            for p in extra_proxies:
+                pool.release(p)
 
 def _safe_name(name: str) -> str:
     name = re.sub(r'[<>:"/\\|?*]', '_', name)
