@@ -460,6 +460,9 @@ class LiberoWebClient:
             except WebApiError:
                 raise
             except Exception as e:
+                err_str = str(e).lower()
+                if any(k in err_str for k in ["proxy", "tunnel", "502", "503", "connect"]):
+                    self._pause_proxy(proxy)
                 if attempt >= 9:
                     print(f"[WEB-DL] Lỗi tải att {mail_id}/{attachment_id}: {e}", flush=True)
                     return None
@@ -496,16 +499,19 @@ class LiberoWebClient:
                 
             except Exception as e:
                 err_str = str(e).lower()
+                is_proxy_err = any(k in err_str for k in ["proxy", "tunnel", "502", "503", "connect"])
                 if "rate_limit" in err_str or "too many" in err_str:
                     self._pause_proxy(proxy)
                     continue
-                if "ox api error" in str(e).lower() or "not json" in str(e).lower():
+                if is_proxy_err:
+                    self._pause_proxy(proxy)
+                if "ox api error" in err_str or "not json" in err_str:
                     raise e
                 if attempt == max_retries - 1:
                     print(f"[OX-API] {module} FAILED after {max_retries} attempts: {e}", flush=True)
                     raise e
                 print(f"[OX-API] Lỗi {e}, thử lại {attempt+1}/{max_retries}...", flush=True)
-                time.sleep(2)
+                time.sleep(2 if not is_proxy_err else 0.5)
                 
         raise WebApiError("RATE_LIMIT Exhausted - Failed API max attempts")
 
