@@ -39,8 +39,9 @@ export LD_LIBRARY_PATH="$NVIDIA_PATHS:$LD_LIBRARY_PATH"
 
 if command -v pm2 &> /dev/null; then
     echo "=> Đang đăng ký và khởi động libero_backend vào PM2..."
+    UV_BIN="$(which uv 2>/dev/null || echo "$HOME/.local/bin/uv")"
     pm2 delete libero_backend 2>/dev/null || true
-    pm2 start "uv run uvicorn main:app --host 0.0.0.0 --port 8000" --name "libero_backend"
+    pm2 start "export LD_LIBRARY_PATH=\"$NVIDIA_PATHS:\$LD_LIBRARY_PATH\" && $UV_BIN run uvicorn main:app --host 0.0.0.0 --port 8000" --name "libero_backend"
     pm2 save
 fi
 
